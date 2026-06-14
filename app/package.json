@@ -1,0 +1,27 @@
+{
+  "name": "kate",
+  "version": "0.1.0",
+  "description": "A k9s-inspired Kubernetes TUI built on OpenTUI. Talks to the cluster directly via @kubernetes/client-node.",
+  "module": "src/main.tsx",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/main.tsx",
+    "start": "bun run src/main.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.17",
+    "@types/react-reconciler": "^0.33.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.1.101",
+    "@opentui/react": "^0.1.101",
+    "@kubernetes/client-node": "^1.0.0",
+    "react": "^19.2.4"
+  }
+}

@@ -1,0 +1,9 @@
+# dependencies
+node_modules/
+
+# logs / scratch
+*.log
+.DS_Store
+
+# local agent/editor tooling
+.claude/

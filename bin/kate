@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# kate — a k9s-inspired Kubernetes TUI built on OpenTUI.
+# Talks to the cluster directly via @kubernetes/client-node (no kubectl shell-out).
+set -euo pipefail
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../app" && pwd)"
+
+# Bun's fetch does not pick up the per-cluster CA that client-node pulls from
+# kubeconfig, so server-cert verification fails against private CAs (e.g. GKE).
+# For a local tool talking to your own authenticated contexts this is safe.
+# TODO: harden by extracting the context CA to a PEM and using NODE_EXTRA_CA_CERTS.
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+
+# Kill any prior kate instance first. `bun run` has no file-watch, so a lingering
+# old process would keep running stale code — restarting must mean a clean start.
+pkill -f "bun run $APP_DIR/src/main.tsx" 2>/dev/null || true
+
+exec bun run "$APP_DIR/src/main.tsx" "$@"
