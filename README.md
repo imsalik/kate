@@ -4,6 +4,8 @@ A [k9s](https://k9scli.io/)-inspired Kubernetes TUI, built on [OpenTUI](https://
 
 kate talks to your cluster **directly** through `@kubernetes/client-node` — no `kubectl` or `helm` shell-outs. It's a read-only browser with live log following, describe, and port-forwarding, with vim-style navigation throughout.
 
+![kate browsing pods with live CPU/MEM](docs/pods-view.png)
+
 ## Features
 
 - **Resource browser** — Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, HPA, ServiceAccounts, Roles, RoleBindings, and Helm releases, grouped in a sidebar.
@@ -39,7 +41,7 @@ Or directly:
 cd app && bun run start
 ```
 
-> **Note on TLS:** `bin/kate` sets `NODE_TLS_REJECT_UNAUTHORIZED=0` because Bun's `fetch` doesn't pick up the per-cluster CA that `client-node` reads from kubeconfig, so verification fails against private CAs (e.g. GKE). This is fine for a local tool talking to your own authenticated contexts. See the comment in `bin/kate`.
+> **Note on TLS:** Bun's `fetch` ignores the per-cluster CA that `client-node` reads from kubeconfig, so verification fails against private CAs (e.g. GKE) out of the box. Rather than disable TLS verification globally, `bin/kate` does what `client-go` (k9s/kubectl) does: it extracts the current context's cluster CA and trusts *that* via `NODE_EXTRA_CA_CERTS` — so verification stays **on**. If no CA can be extracted it falls back to disabling verification with a warning. Set `KATE_INSECURE_TLS=1` to force the old blanket-disable behavior.
 
 ## Keybindings
 
@@ -73,32 +75,6 @@ tmux set-option -g @kate-theme nord
 ```
 
 Resolution order: `@kate-theme` (tmux) → `KATE_THEME` (env) → `mustard`.
-
-## Architecture
-
-```
-app/src/
-  main.tsx            entry: renderer setup, error handling, mount
-  App.tsx             orchestrator: state, effects, actions, keyboard, layout
-  types.ts            UI state types (the view navigation stack)
-  k8s/                data layer (framework-agnostic)
-    client.ts         the API client + log/port-forward lifecycle
-    fetchers.ts       per-kind listers → Table
-    kinds.ts          the resource-kind registry + capabilities
-    quantities.ts     CPU/MEM/age parsing, usage colors
-    types.ts          Table/Row/Kind/... shapes
-    index.ts          public barrel
-  ui/
-    theme.ts          theme palettes + active theme
-    colors.ts         semantic color → theme hex
-    format.ts         column widths, fixed-width cells
-    highlight.ts      YAML/JSON/log colorizers, wrapping
-    nav.ts            sidebar model + namespace filter
-    components/       one file per view (TableView, LogsView, ...)
-  lib/fuzzy.ts        dependency-free fzf-style matcher
-```
-
-The data layer never imports the UI; the UI maps the data layer's *semantic* colors (`ok`/`warn`/`err`/…) to theme hex, so themes stay decoupled from data.
 
 ## Status
 

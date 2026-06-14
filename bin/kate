@@ -4,11 +4,27 @@
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../app" && pwd)"
 
-# Bun's fetch does not pick up the per-cluster CA that client-node pulls from
-# kubeconfig, so server-cert verification fails against private CAs (e.g. GKE).
-# For a local tool talking to your own authenticated contexts this is safe.
-# TODO: harden by extracting the context CA to a PEM and using NODE_EXTRA_CA_CERTS.
-export NODE_TLS_REJECT_UNAUTHORIZED=0
+# Bun's fetch ignores the per-cluster CA that client-node reads from kubeconfig,
+# so verification fails against private CAs (e.g. GKE) out of the box. Rather
+# than disable TLS verification globally, we do what client-go (k9s/kubectl)
+# does: extract the current context's cluster CA and trust *that* — Bun's fetch
+# does honor NODE_EXTRA_CA_CERTS. Verification stays ON.
+#
+# Escape hatch: KATE_INSECURE_TLS=1 restores the old blanket-disable behavior.
+if [ "${KATE_INSECURE_TLS:-0}" = "1" ]; then
+  export NODE_TLS_REJECT_UNAUTHORIZED=0
+else
+  # Reuse one file per user so repeated launches overwrite rather than pile up.
+  CA_FILE="${TMPDIR:-/tmp}/kate-ca-$(id -u).pem"
+  if bun run "$APP_DIR/src/tools/dump-ca.ts" >"$CA_FILE" 2>/dev/null && [ -s "$CA_FILE" ]; then
+    export NODE_EXTRA_CA_CERTS="$CA_FILE"
+  else
+    rm -f "$CA_FILE"
+    echo "kate: couldn't extract a cluster CA from kubeconfig — falling back to" >&2
+    echo "      insecure TLS (verification off). Set KATE_INSECURE_TLS=1 to silence." >&2
+    export NODE_TLS_REJECT_UNAUTHORIZED=0
+  fi
+fi
 
 # Kill any prior kate instance first. `bun run` has no file-watch, so a lingering
 # old process would keep running stale code — restarting must mean a clean start.
