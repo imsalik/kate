@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { C } from "../theme";
 
 // Parse a GKE context name (`gke_<project>_<location>_<cluster>`) into its
@@ -38,6 +40,15 @@ export function Header({
   forwards: number;
   refreshSecs: number;
 }) {
+  // Blink the brand's terminal cursor in the title, mirroring the logo's caret.
+  // A trailing space (not an empty string) on the off-beat keeps the title width
+  // stable so the border doesn't twitch as it toggles.
+  const [cursorOn, setCursorOn] = useState(true);
+  useEffect(() => {
+    const id = setInterval(() => setCursorOn((on) => !on), 530);
+    return () => clearInterval(id);
+  }, []);
+
   // Parse from the cluster reference (what we actually talk to), not the context
   // label — so the cluster/project/region are accurate even if a context is
   // renamed. For standard GKE entries the two strings are identical anyway.
@@ -58,7 +69,7 @@ export function Header({
       backgroundColor={C.surface}
       paddingX={1}
       flexDirection="row"
-      title=" ⎈ kate ▌"
+      title={` ⎈ kate ${cursorOn ? "▌" : " "}`}
       titleAlignment="left"
     >
       {/* left: identity + namespace */}
