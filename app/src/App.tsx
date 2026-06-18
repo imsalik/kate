@@ -8,12 +8,12 @@ import { fuzzyScore } from "./lib/fuzzy";
 import { saveConfig, rememberNamespace } from "./config";
 
 import { C, applyTheme, THEME_NAMES, currentThemeName } from "./ui/theme";
-import { colWidths } from "./ui/format";
 import { SIDEBAR, POD_INDEX } from "./ui/nav";
 import { matchCommands, type Candidate } from "./commands";
 
 import { Sidebar } from "./ui/components/Sidebar";
 import { CommandPalette } from "./ui/components/CommandPalette";
+import { FilterBar } from "./ui/components/FilterBar";
 import { ConfigView } from "./ui/components/ConfigView";
 import { Header } from "./ui/components/Header";
 import { PodPickView } from "./ui/components/PodPickView";
@@ -201,8 +201,6 @@ export function App() {
     if (rowIndex >= rows.length) setRowIndex(Math.max(0, rows.length - 1));
   }, [rows.length]);
 
-  const widths = useMemo(() => colWidths(table), [table]);
-
   // Cache namespace names per context so the `:ns` palette can complete them.
   useEffect(() => {
     let cancelled = false;
@@ -333,8 +331,8 @@ export function App() {
 
   // Enter on a context (even the current one): switch to it, then drill into a
   // namespace picker → pods, so Esc walks back contexts ← namespaces ← pods.
-  function switchToSelectedContext() {
-    const r = rows[rowIndex];
+  function switchToSelectedContext(idx = rowIndex) {
+    const r = rows[idx];
     if (!r) return;
     if (r.name !== ctxName) {
       client.switchContext(r.name);
@@ -365,8 +363,8 @@ export function App() {
   // Enter on a logs-capable row: pods go straight to logs; workloads/jobs
   // resolve their backing pods first — one pod tails directly, several open a
   // pod picker.
-  function openLogsForSelected() {
-    const r = rows[rowIndex];
+  function openLogsForSelected(idx = rowIndex) {
+    const r = rows[idx];
     if (!r) return;
     if (kindId === "pods") return logsForPod(r.namespace, r.name);
     client
@@ -411,8 +409,8 @@ export function App() {
 
   // Enter on a namespace row: switch the active namespace, persist it, then go
   // where this list said to (pods, or back to the prior resource).
-  function switchToSelectedNamespace() {
-    const r = rows[rowIndex];
+  function switchToSelectedNamespace(idx = rowIndex) {
+    const r = rows[idx];
     if (!r) return;
     const nsReturn = view.kind === "list" ? view.nsReturn : undefined;
     setAllNs(false);
@@ -492,6 +490,79 @@ export function App() {
     setCmdMode(false);
     setCmd("");
     setCmdSel(0);
+  }
+
+  // ----- mouse (basics: scroll + click) -----------------------------------
+  // The Enter action for a row, but driven by an explicit index (a click need
+  // not match the keyboard selection).
+  function activateRowAt(idx: number) {
+    if (kindId === "contexts") switchToSelectedContext(idx);
+    else if (kindId === "namespaces") switchToSelectedNamespace(idx);
+    else if (canViewLogs(kindId)) openLogsForSelected(idx);
+  }
+
+  // Single click selects the row; a second click on the same row (within
+  // 400ms) opens it — so a stray click never streams logs by surprise.
+  const lastClickRef = useRef<{ idx: number; t: number }>({ idx: -1, t: 0 });
+  function onRowClick(idx: number) {
+    if (inputMode) return;
+    setFocus("table");
+    setRowIndex(idx);
+    const now = Date.now();
+    const prev = lastClickRef.current;
+    if (prev.idx === idx && now - prev.t < 400) {
+      lastClickRef.current = { idx: -1, t: 0 };
+      activateRowAt(idx);
+    } else {
+      lastClickRef.current = { idx, t: now };
+    }
+  }
+
+  // Wheel scroll: move the selection in lists, scroll text in logs/describe,
+  // move the cursor in the menu-like views.
+  function onPaneScroll(dir: "up" | "down" | "left" | "right") {
+    if (inputMode || dir === "left" || dir === "right") return;
+    const d = dir === "down" ? 1 : -1;
+    const STEP = 3;
+    if (view.kind === "logs")
+      return setView((v) =>
+        v.kind === "logs" ? { ...v, bottomOffset: Math.max(0, v.bottomOffset + (dir === "up" ? STEP : -STEP)) } : v,
+      );
+    if (view.kind === "describe")
+      return setView((v) => (v.kind === "describe" ? { ...v, scroll: Math.max(0, v.scroll + d * STEP) } : v));
+    if (view.kind === "containers")
+      return setView((v) =>
+        v.kind === "containers" ? { ...v, index: Math.min(v.items.length - 1, Math.max(0, v.index + d)) } : v,
+      );
+    if (view.kind === "podpick")
+      return setView((v) =>
+        v.kind === "podpick" ? { ...v, index: Math.min(v.pods.length - 1, Math.max(0, v.index + d)) } : v,
+      );
+    if (view.kind === "forwards") {
+      const n = client.listForwards().length;
+      return setView((v) => (v.kind === "forwards" ? { ...v, index: Math.min(n - 1, Math.max(0, v.index + d)) } : v));
+    }
+    if (view.kind === "config") {
+      const i = Math.min(THEME_NAMES.length - 1, Math.max(0, view.index + d));
+      applyTheme(THEME_NAMES[i]!); // live preview, mirrors the keyboard picker
+      return setView({ ...view, index: i });
+    }
+    // list view
+    const last = Math.max(0, rows.length - 1);
+    setFocus("table");
+    setRowIndex((i) => Math.min(last, Math.max(0, i + d * STEP)));
+  }
+
+  // Click a sidebar entry → jump to that kind; wheel over it → walk kinds.
+  function onSidebarSelect(id: string) {
+    if (inputMode) return;
+    jumpToKind(id);
+    setFocus("table");
+  }
+  function onSidebarScroll(dir: "up" | "down" | "left" | "right") {
+    if (inputMode) return;
+    if (dir === "down") moveSidebar(1);
+    else if (dir === "up") moveSidebar(-1);
   }
 
   // ----- keyboard ---------------------------------------------------------
@@ -765,7 +836,11 @@ export function App() {
   });
 
   // ----- layout math ------------------------------------------------------
-  const HEADER_H = 3; // the Header renders 3 aligned rows
+  const HEADER_H = 4; // bordered header: 2 content rows + top/bottom border
+  const SIDEBAR_W = 22;
+  // Pane inner content width = terminal − body padding(2) − sidebar − gap(1) −
+  // pane border(2). Used to spread the table columns; recomputed on resize.
+  const paneContentW = Math.max(20, dims.width - SIDEBAR_W - 7);
   const bodyH = Math.max(3, dims.height - HEADER_H - 3); // minus header + footer(2) + margin
   const paneInnerH = Math.max(1, bodyH - 2); // minus pane border top/bottom
   const tableViewH = Math.max(1, paneInnerH - 1); // minus column-header row
@@ -817,25 +892,32 @@ export function App() {
         count={rows.length}
         loading={loading}
         forwards={forwardsCount}
-        theme={currentThemeName}
         refreshSecs={Math.round(REFRESH_MS / 1000)}
       />
 
       {/* Body: sidebar + main pane */}
       <box flexDirection="row" flexGrow={1} gap={1} paddingX={1}>
-        <Sidebar sideIndex={sideIndex} focus={focus} activeId={kindId} inList={inList} />
+        <Sidebar
+          sideIndex={sideIndex}
+          focus={focus}
+          activeId={kindId}
+          inList={inList}
+          onSelect={onSidebarSelect}
+          onScroll={onSidebarScroll}
+        />
         <box
           flexGrow={1}
           flexDirection="column"
+          borderStyle="rounded"
           border
           borderColor={!inList ? C.accent : focus === "table" ? C.accent : C.border}
-          title={paneTitle}
+          title={` ${paneTitle} `}
           titleAlignment="left"
+          onMouseScroll={(e) => e.scroll && onPaneScroll(e.scroll.direction)}
         >
           {(view.kind === "list" || view.kind === "portpick") && (
             <TableView
               table={table}
-              widths={widths}
               visible={visible}
               start={start}
               tableViewH={tableViewH}
@@ -847,6 +929,8 @@ export function App() {
               ctxName={ctxName}
               total={rows.length}
               forwardedPods={forwardedPods}
+              width={paneContentW}
+              onRowClick={onRowClick}
             />
           )}
           {view.kind === "logs" && <LogsView view={view} height={paneInnerH} width={dims.width - 30} />}
@@ -859,8 +943,9 @@ export function App() {
         </box>
       </box>
 
-      {/* Command palette — floats near the top over everything */}
-      {cmdMode && <CommandPalette input={cmd} candidates={cmdCandidates} sel={cmdSel} dims={dims} />}
+      {/* Command palette / filter — float just below the header */}
+      {cmdMode && <CommandPalette input={cmd} candidates={cmdCandidates} sel={cmdSel} dims={dims} top={HEADER_H} />}
+      {searchMode && <FilterBar query={query} count={rows.length} dims={dims} top={HEADER_H} />}
 
       {/* Port-forward modal — floats centered over the list */}
       {view.kind === "portpick" && <PortForwardModal view={view} dims={dims} />}

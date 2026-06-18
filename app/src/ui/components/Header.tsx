@@ -1,5 +1,4 @@
 import { C } from "../theme";
-import { fit } from "../format";
 
 // Parse a GKE context name (`gke_<project>_<location>_<cluster>`) into its
 // parts so the header can show clean project / region / cluster fields instead
@@ -9,18 +8,13 @@ function parseGke(name: string): { project: string; location: string; cluster: s
   return m ? { project: m[1]!, location: m[2]!, cluster: m[3]! } : null;
 }
 
-const LABEL_W = 10;
-function Field({ label, value, valueFg }: { label: string; value: string; valueFg?: string }) {
-  return (
-    <box flexDirection="row">
-      <text fg={C.textDim}>{fit(label, LABEL_W)}</text>
-      <text fg={valueFg ?? C.text}>{value}</text>
-    </box>
-  );
+function Dot() {
+  return <text fg={C.textDim}>{"  ·  "}</text>;
 }
 
-// The top info panel. Multi-line and aligned (k9s-style): identity on the left,
-// live status on the right. Read-only — it only reflects state.
+// The top info panel: a rounded, bordered bar. Identity on the left (cluster +
+// where it lives), live status on the right (resource count, namespace, theme,
+// refresh). Read-only — it only reflects state.
 export function Header({
   ctxName,
   cluster,
@@ -31,7 +25,6 @@ export function Header({
   count,
   loading,
   forwards,
-  theme,
   refreshSecs,
 }: {
   ctxName: string;
@@ -43,7 +36,6 @@ export function Header({
   count: number;
   loading: boolean;
   forwards: number;
-  theme: string;
   refreshSecs: number;
 }) {
   // Parse from the cluster reference (what we actually talk to), not the context
@@ -51,45 +43,54 @@ export function Header({
   // renamed. For standard GKE entries the two strings are identical anyway.
   const gke = parseGke(cluster) ?? parseGke(ctxName);
 
+  const primary = gke ? gke.cluster : ctxName;
+  // [value, color] pairs for the secondary line. GKE → project / region; other
+  // clusters → cluster / user. A bit of hue makes the bar read at a glance.
+  const sub: [string, string][] = gke
+    ? [[gke.project, C.ok], [gke.location, C.warn]]
+    : [[cluster, C.text], [user, C.textDim]].filter(([s]) => s) as [string, string][];
+
   return (
-    <box flexDirection="row" backgroundColor={C.surface} paddingX={1} gap={3}>
-      {/* left column: identity */}
+    <box
+      borderStyle="rounded"
+      border
+      borderColor={C.border}
+      backgroundColor={C.surface}
+      paddingX={1}
+      flexDirection="row"
+      title=" ⎈ kate ▌"
+      titleAlignment="left"
+    >
+      {/* left: identity + namespace */}
       <box flexDirection="column">
         <box flexDirection="row">
-          <text fg={C.accentLight}>kate</text>
-          <text fg={C.textDim}> · kubernetes</text>
+          <text fg={C.accent}>{"⎈ "}</text>
+          <text fg={C.accentLight}><b>{primary}</b></text>
         </box>
-        <Field label="context" value={ctxName} />
-        {gke ? (
-          <Field label="cluster" value={gke.cluster} />
-        ) : (
-          <Field label="cluster" value={cluster} />
-        )}
+        <box flexDirection="row">
+          {sub.map(([s, fg], i) => (
+            <box key={i} flexDirection="row">
+              {i > 0 && <Dot />}
+              <text fg={fg}>{s}</text>
+            </box>
+          ))}
+          <Dot />
+          <text fg={C.textDim}>ns </text>
+          <text fg={C.accent}><b>{allNs ? "all" : namespace}</b></text>
+        </box>
       </box>
 
-      {/* middle column: location / scope */}
-      <box flexDirection="column">
-        <text fg={C.textDim}>{fit("", 1)}</text>
-        {gke ? <Field label="project" value={gke.project} /> : <Field label="user" value={user} />}
-        {gke ? <Field label="region" value={gke.location} /> : <box />}
-      </box>
-
-      {/* right column: live status, pushed to the edge */}
+      {/* right: live status, pushed to the edge */}
       <box flexGrow={1} />
       <box flexDirection="column" alignItems="flex-end">
         <box flexDirection="row">
-          <text fg={C.textDim}>{`⟳ ${refreshSecs}s · `}</text>
-          <text fg={C.accent}>{`◆ ${theme}`}</text>
+          <text fg={C.text}>{kindTitle}</text>
+          <text fg={C.accentLight}><b>{`  ${count}`}</b></text>
+          {loading && <text fg={C.textDim}>{"  ⋯"}</text>}
+          {forwards > 0 && <text fg={C.ok}>{`   ⇄ ${forwards}`}</text>}
         </box>
         <box flexDirection="row">
-          <text fg={C.textDim}>ns </text>
-          <text fg={C.accent}>{allNs ? "<all>" : namespace}</text>
-        </box>
-        <box flexDirection="row">
-          <text fg={C.text}>{kindTitle} </text>
-          <text fg={C.accent}>{`[${count}]`}</text>
-          {loading && <text fg={C.textDim}> …</text>}
-          {forwards > 0 && <text fg={C.ok}>{`  ⇄ ${forwards}`}</text>}
+          <text fg={C.textDim}>{`⟳ ${refreshSecs}s`}</text>
         </box>
       </box>
     </box>

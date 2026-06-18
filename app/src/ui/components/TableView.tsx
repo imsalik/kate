@@ -4,9 +4,14 @@ import { C } from "../theme";
 import { fit } from "../format";
 import { cellColor } from "../colors";
 
+const GUTTER = 2; // cursor column ("▌ " / "  ")
+const PF_W = 2; // forwarded-pod marker ("⇄ " / "  "), pods view only
+const MIN_GAP = 2; // minimum space between the NAME group and the metrics group
+const MIN_NAME = 12; // never shrink NAME below this
+const MAX_NAME = 80; // …nor stretch it past the longest name
+
 export function TableView({
   table,
-  widths,
   visible,
   start,
   tableViewH,
@@ -18,9 +23,10 @@ export function TableView({
   ctxName,
   total,
   forwardedPods,
+  width,
+  onRowClick,
 }: {
   table: Table;
-  widths: number[];
   visible: Table["rows"];
   start: number;
   tableViewH: number;
@@ -32,52 +38,100 @@ export function TableView({
   ctxName: string;
   total: number;
   forwardedPods: Set<string>;
+  width: number; // pane inner content width, for spreading columns
+  onRowClick: (idx: number) => void;
 }) {
   const kind = kindById(kindId);
-  // Show a PF column on the pods list so forwarded pods are obvious (k9s-style).
   const showPF = kindId === "pods";
-  // Index of the NAME column; the PF marker sits right after it, and NAME gets
-  // extra breathing room so the metrics columns shift to the right.
   const nameIdx = table.headers.indexOf("NAME");
-  const NAME_PAD = 4;
-  const w = widths.map((x, i) => (i === nameIdx ? x + NAME_PAD : x));
-  const pfHeader = <text key="pf" fg={C.accentDim}>{"PF  "}</text>;
+  const hasName = nameIdx >= 0;
+
+  // Natural width of each column: header vs widest cell. NAME may grow large so
+  // long pod names show in full; the rest stay compact.
+  const nat = table.headers.map((h, i) => {
+    let w = h.length;
+    for (const r of table.rows) w = Math.max(w, (r.cells[i] ?? "").length);
+    return i === nameIdx ? Math.min(MAX_NAME, w) : Math.min(60, w);
+  });
+
+  // Split into a left group (identity columns, up to & including NAME) pinned
+  // left, and a right group (the metrics) pushed to the right edge by a flex
+  // spacer — so the table fills the pane and reacts to resize. NAME keeps its
+  // natural width unless the terminal is too narrow to hold it.
+  const cols = table.headers.map((_, i) => i);
+  const leftIdx = hasName ? cols.filter((i) => i <= nameIdx) : cols;
+  const rightIdx = hasName ? cols.filter((i) => i > nameIdx) : [];
+
+  const rightW = rightIdx.reduce((s, i) => s + (nat[i] ?? 0) + 1, 0);
+  const leftOtherW = leftIdx
+    .filter((i) => i !== nameIdx)
+    .reduce((s, i) => s + (nat[i] ?? 0) + 1, 0);
+  const fixed = GUTTER + (showPF ? PF_W : 0) + leftOtherW + rightW + MIN_GAP + 1;
+
+  const colW = nat.slice();
+  if (hasName) {
+    const avail = width - fixed;
+    colW[nameIdx] = Math.max(MIN_NAME, Math.min(nat[nameIdx] ?? MIN_NAME, Math.max(MIN_NAME, avail)));
+  }
+
+  const headerCell = (i: number) => (
+    <text key={i} fg={C.accentDim}>{fit(table.headers[i]!, colW[i] ?? 0)} </text>
+  );
+
   return (
     <box flexDirection="column">
-      <box flexDirection="row" paddingX={1}>
-        {table.headers.map((h, i) => [
-          <text key={i} fg={C.accentDim}>{fit(h, w[i] ?? h.length)} </text>,
-          showPF && i === nameIdx ? pfHeader : null,
-        ])}
+      {/* column-header band */}
+      <box flexDirection="row" backgroundColor={C.surface} paddingX={1}>
+        <text fg={C.accentDim}>{"  "}</text>
+        {showPF && <text fg={C.accentDim}>{"  "}</text>}
+        {leftIdx.map((i) => headerCell(i))}
+        <box flexGrow={1} />
+        <text fg={C.accentDim}>{"  "}</text>
+        {rightIdx.map((i) => headerCell(i))}
       </box>
-      {start > 0 && <text fg={C.textDim}>{`  ↑ ${start} more`}</text>}
+
+      {start > 0 && <text fg={C.textDim}>{`     ↑ ${start} more`}</text>}
+
       {visible.map((r, vi) => {
         const idx = start + vi;
         const sel = idx === rowIndex && focus === "table";
         const activeCtx = kindId === "contexts" && r.name === ctxName;
         const pf = showPF && forwardedPods.has(r.name);
-        const fg = sel ? C.bg : activeCtx ? C.accentLight : C.text;
+        const cell = (i: number) => {
+          const semantic = cellColor(r.colors?.[i]);
+          const isName = i === nameIdx;
+          const base = activeCtx ? C.accentLight : C.text;
+          const fg = semantic ?? (sel && isName ? C.accentLight : base);
+          const body = fit(r.cells[i] ?? "", colW[i] ?? 0);
+          return (
+            <text key={i} fg={fg}>
+              {sel && isName ? <b>{body}</b> : body}{" "}
+            </text>
+          );
+        };
         return (
-          <box key={idx} flexDirection="row" paddingX={1} backgroundColor={sel ? C.accent : undefined}>
-            {r.cells.map((c, ci) => {
-              // On the highlighted row keep everything bg-colored for contrast;
-              // otherwise use the cell's semantic color if it carries one.
-              const cellFg = sel ? C.bg : cellColor(r.colors?.[ci]) ?? fg;
-              return [
-                <text key={ci} fg={cellFg}>{fit(c, w[ci] ?? c.length)} </text>,
-                showPF && ci === nameIdx ? (
-                  <text key={`pf${ci}`} fg={sel ? C.bg : C.accentLight}>{pf ? "⇄   " : "    "}</text>
-                ) : null,
-              ];
-            })}
+          <box
+            key={idx}
+            flexDirection="row"
+            paddingX={1}
+            backgroundColor={sel ? C.highlight : undefined}
+            onMouseDown={() => onRowClick(idx)}
+          >
+            <text fg={C.accent}>{sel ? "▌ " : "  "}</text>
+            {showPF && <text fg={C.accentLight}>{pf ? "⇄ " : "  "}</text>}
+            {leftIdx.map((i) => cell(i))}
+            <box flexGrow={1} />
+            <text fg={C.text}>{"  "}</text>
+            {rightIdx.map((i) => cell(i))}
           </box>
         );
       })}
+
       {start + tableViewH < total && (
-        <text fg={C.textDim}>{`  ↓ ${total - start - tableViewH} more`}</text>
+        <text fg={C.textDim}>{`     ↓ ${total - start - tableViewH} more`}</text>
       )}
       {total === 0 && !loading && (
-        <text fg={C.textDim}>  no {kind?.title.toLowerCase() ?? "items"} {query ? "match filter" : "here"}</text>
+        <text fg={C.textDim}>{`     no ${kind?.title.toLowerCase() ?? "items"} ${query ? "match filter" : "here"}`}</text>
       )}
     </box>
   );

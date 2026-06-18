@@ -8,6 +8,7 @@ export function HelpView() {
       ["g / G, home/end", "top / bottom (in logs: top / live tail)"],
       ["ctrl-d/u, pgdn/pgup", "half page down / up"],
       ["h / l, ← / →, tab", "focus sidebar / table / toggle"],
+      ["mouse", "scroll · click to select · double-click to open"],
     ]],
     ["Command palette  ( : )", [
       [":<resource>", "jump to any resource (:po, :deploy, :svc, :sa…)"],

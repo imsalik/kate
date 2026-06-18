@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="kate" width="380">
+</p>
+
 # kate
 
 A [k9s](https://k9scli.io/)-inspired Kubernetes TUI, built on [OpenTUI](https://github.com/anomalyco/opentui) (TypeScript + React, running on [Bun](https://bun.sh)).

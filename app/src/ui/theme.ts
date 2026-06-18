@@ -14,6 +14,9 @@ export interface Theme {
   danger: string;
   ok: string;
   warn: string;
+  // Subtle background band behind the selected row / active item. A muted,
+  // accent-tinted tone — softer and more modern than a full inverted bar.
+  highlight: string;
 }
 
 export const themes: Record<string, Theme> = {
@@ -29,6 +32,7 @@ export const themes: Record<string, Theme> = {
     danger: "#D86A4A",
     ok: "#8FB45A",
     warn: "#E0A33E",
+    highlight: "#2E2614",
   },
   dracula: {
     bg: "#282A36",
@@ -42,6 +46,7 @@ export const themes: Record<string, Theme> = {
     danger: "#FF5555",
     ok: "#50FA7B",
     warn: "#F1FA8C",
+    highlight: "#414458",
   },
   gruvbox: {
     bg: "#1D2021",
@@ -55,6 +60,7 @@ export const themes: Record<string, Theme> = {
     danger: "#CC241D",
     ok: "#B8BB26",
     warn: "#FABD2F",
+    highlight: "#3C3836",
   },
   catppuccin: {
     bg: "#1E1E2E",
@@ -68,6 +74,7 @@ export const themes: Record<string, Theme> = {
     danger: "#F38BA8",
     ok: "#A6E3A1",
     warn: "#F9E2AF",
+    highlight: "#3B3D54",
   },
   nord: {
     bg: "#2E3440",
@@ -81,6 +88,7 @@ export const themes: Record<string, Theme> = {
     danger: "#BF616A",
     ok: "#A3BE8C",
     warn: "#EBCB8B",
+    highlight: "#434C5E",
   },
   mono: {
     bg: "#0A0A0A",
@@ -94,6 +102,7 @@ export const themes: Record<string, Theme> = {
     danger: "#E5E5E5",
     ok: "#E5E5E5",
     warn: "#E5E5E5",
+    highlight: "#262626",
   },
 };
 
