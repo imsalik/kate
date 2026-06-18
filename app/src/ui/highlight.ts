@@ -4,7 +4,7 @@
 
 import { C } from "./theme";
 
-export type Seg = { t: string; fg: string };
+export type Seg = { t: string; fg: string; bg?: string };
 
 // Clip a segment list to a max display width, splitting the segment that
 // straddles the boundary so colors stay aligned.
@@ -18,7 +18,7 @@ export function truncSegs(segs: Seg[], width: number): Seg[] {
       out.push(s);
       used += s.t.length;
     } else {
-      out.push({ t: s.t.slice(0, room), fg: s.fg });
+      out.push({ t: s.t.slice(0, room), fg: s.fg, bg: s.bg });
       used += room;
     }
   }
@@ -157,11 +157,11 @@ export function wrapSegs(segs: Seg[], width: number): Seg[][] {
     while (text.length > 0) {
       const room = width - used;
       if (text.length <= room) {
-        row.push({ t: text, fg: s.fg });
+        row.push({ t: text, fg: s.fg, bg: s.bg });
         used += text.length;
         text = "";
       } else {
-        row.push({ t: text.slice(0, room), fg: s.fg });
+        row.push({ t: text.slice(0, room), fg: s.fg, bg: s.bg });
         text = text.slice(room);
         rows.push(row);
         row = [];
@@ -171,4 +171,66 @@ export function wrapSegs(segs: Seg[], width: number): Seg[][] {
   }
   if (row.length || rows.length === 0) rows.push(row);
   return rows;
+}
+
+// ----- search (highlight + jump) -----------------------------------------
+
+// A single substring hit: which source line, the start column, and the match
+// length. Search is case-insensitive and non-overlapping, left to right.
+export type Match = { line: number; col: number; len: number };
+
+export function findMatches(lines: string[], term: string): Match[] {
+  const out: Match[] = [];
+  if (!term) return out;
+  const needle = term.toLowerCase();
+  for (let i = 0; i < lines.length; i++) {
+    const hay = lines[i]!.toLowerCase();
+    let from = 0;
+    for (;;) {
+      const idx = hay.indexOf(needle, from);
+      if (idx < 0) break;
+      out.push({ line: i, col: idx, len: needle.length });
+      from = idx + needle.length;
+    }
+  }
+  return out;
+}
+
+// Paint match backgrounds onto a line's colored segments. `cols` are the start
+// columns of matches on this line (absolute, pre-truncation); `activeCol` is the
+// column of the n/N-selected match if it's on this line, else -1. Matched runs
+// take the search style (fg/bg flipped for contrast) — the active one a brighter
+// bg. We walk char-by-char so a match that straddles a color boundary still
+// highlights cleanly; only ever runs on the handful of visible rows.
+export function highlightSegs(
+  segs: Seg[],
+  cols: number[],
+  len: number,
+  match: { fg: string; bg: string },
+  active: { fg: string; bg: string },
+  activeCol: number,
+): Seg[] {
+  if (cols.length === 0 || len === 0) return segs;
+  const styleAt = (abs: number): { fg: string; bg: string } | null => {
+    for (const c of cols) if (abs >= c && abs < c + len) return c === activeCol ? active : match;
+    return null;
+  };
+  const out: Seg[] = [];
+  let pos = 0;
+  for (const s of segs) {
+    let cur = "";
+    let curStyle: { fg: string; bg: string } | null | undefined = undefined;
+    for (let k = 0; k < s.t.length; k++) {
+      const st = styleAt(pos + k);
+      if (st !== curStyle) {
+        if (cur) out.push(curStyle ? { t: cur, fg: curStyle.fg, bg: curStyle.bg } : { t: cur, fg: s.fg, bg: s.bg });
+        cur = "";
+        curStyle = st;
+      }
+      cur += s.t[k];
+    }
+    if (cur) out.push(curStyle ? { t: cur, fg: curStyle.fg, bg: curStyle.bg } : { t: cur, fg: s.fg, bg: s.bg });
+    pos += s.t.length;
+  }
+  return out;
 }

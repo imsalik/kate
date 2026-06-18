@@ -55,7 +55,7 @@ export function Footer({
 
   let hints: Hint[];
   if (view.kind === "logs")
-    hints = [["k/j", "scroll"], ["w", "wrap"], ["c", "copy"], ["G", "live-tail"], ["esc", "back"], ["^c", "quit"]];
+    hints = [["k/j", "scroll"], ["/", "search"], ["n/N", "next/prev"], ["w", "wrap"], ["c", "copy"], ["G", "live"], ["esc", "back"]];
   else if (view.kind === "describe")
     hints = [["j/k", "scroll"], ["g", "top"], ["c", "copy"], ["esc", "back"]];
   else if (view.kind === "containers")

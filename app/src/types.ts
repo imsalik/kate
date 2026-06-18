@@ -27,6 +27,8 @@ export type View =
   | { kind: "forwards"; index: number; nonce: number }
   // bottomOffset: lines scrolled up from the live tail; 0 == pinned to bottom.
   // wrap: soft-wrap long lines instead of truncating (toggled with `w`).
-  | { kind: "logs"; subtitle: string; text: string; bottomOffset: number; streaming: boolean; wrap: boolean };
+  // search: the active highlight term ("" == off); searchInput: the `/` entry
+  // bar is open and keystrokes edit the term; matchIdx: the n/N-selected match.
+  | { kind: "logs"; subtitle: string; text: string; bottomOffset: number; streaming: boolean; wrap: boolean; search: string; searchInput: boolean; matchIdx: number };
 
 export type Status = { kind: "info" | "error"; text: string } | null;

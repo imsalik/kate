@@ -9,12 +9,14 @@ import { copyToClipboard as clipboardCopy } from "./lib/clipboard";
 import { saveConfig, rememberNamespace } from "./config";
 
 import { C, applyTheme, THEME_NAMES, currentThemeName } from "./ui/theme";
+import { findMatches } from "./ui/highlight";
 import { SIDEBAR, POD_INDEX } from "./ui/nav";
 import { matchCommands, type Candidate } from "./commands";
 
 import { Sidebar } from "./ui/components/Sidebar";
 import { CommandPalette } from "./ui/components/CommandPalette";
 import { FilterBar } from "./ui/components/FilterBar";
+import { LogSearchBar } from "./ui/components/LogSearchBar";
 import { ConfigView } from "./ui/components/ConfigView";
 import { Header } from "./ui/components/Header";
 import { PodPickView } from "./ui/components/PodPickView";
@@ -417,7 +419,7 @@ export function App() {
     stopLogStream();
     logBufRef.current = "";
     const label = container ? `${pod.namespace}/${pod.name} · ${container}` : `${pod.namespace}/${pod.name}`;
-    pushView({ kind: "logs", subtitle: label, text: "", bottomOffset: 0, streaming: true, wrap: false });
+    pushView({ kind: "logs", subtitle: label, text: "", bottomOffset: 0, streaming: true, wrap: false, search: "", searchInput: false, matchIdx: 0 });
     client
       .streamPodLogs(pod.namespace, pod.name, (chunk) => {
         logBufRef.current += chunk;
@@ -539,6 +541,62 @@ export function App() {
   function describeMaxScroll(text: string, loading: boolean): number {
     const n = loading ? 1 : text.split("\n").length;
     return Math.max(0, n - Math.max(1, paneInnerH - 1));
+  }
+
+  // ----- logs search (highlight + jump) -----------------------------------
+  // Split a log buffer into lines the same way LogsView does, so match line
+  // numbers line up with what's drawn.
+  function logLines(text: string): string[] {
+    return text === "" ? [] : text.replace(/\n$/, "").split("\n");
+  }
+  // The visible row count LogsView uses (its height is paneInnerH, minus the
+  // status row). Matters because we scroll a match toward the middle of it, and
+  // it must match logMaxOffset's clamp so a jump can't overshoot the top.
+  function logsViewH(): number {
+    return Math.max(1, paneInnerH - 1);
+  }
+  // bottomOffset (lines up from the live tail) that brings source line `line`
+  // roughly to the middle of the pane, clamped so it can't overshoot the top.
+  function offsetForLine(line: number, total: number, viewH: number): number {
+    const endLine = Math.min(total, line + 1 + Math.floor(viewH / 2));
+    return Math.max(0, Math.min(Math.max(0, total - viewH), total - endLine));
+  }
+  // Apply a new search term: recompute matches, pick the one nearest the current
+  // viewport (incremental-search feel), and scroll it into view. The term is
+  // derived inside the state updater (not from the render closure) so fast typing
+  // can't drop characters — same trick as the table filter's functional setQuery.
+  function applyLogSearch(edit: (prev: string) => string) {
+    setView((v) => {
+      if (v.kind !== "logs") return v;
+      const term = edit(v.search);
+      if (!term) return { ...v, search: "", matchIdx: 0 };
+      const lines = logLines(v.text);
+      const ms = findMatches(lines, term);
+      if (ms.length === 0) return { ...v, search: term, matchIdx: 0 };
+      const viewH = logsViewH();
+      const center = Math.max(0, lines.length - v.bottomOffset - Math.floor(viewH / 2));
+      let best = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < ms.length; i++) {
+        const d = Math.abs(ms[i]!.line - center);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      return { ...v, search: term, matchIdx: best, bottomOffset: offsetForLine(ms[best]!.line, lines.length, viewH) };
+    });
+  }
+  // Step n/N through the matches, wrapping around, scrolling each into view.
+  function jumpMatch(dir: 1 | -1) {
+    setView((v) => {
+      if (v.kind !== "logs" || !v.search) return v;
+      const lines = logLines(v.text);
+      const ms = findMatches(lines, v.search);
+      if (ms.length === 0) return v;
+      const next = (v.matchIdx + dir + ms.length) % ms.length;
+      return { ...v, matchIdx: next, bottomOffset: offsetForLine(ms[next]!.line, lines.length, logsViewH()) };
+    });
   }
 
   // Copy text to the system clipboard (native helper, OSC 52 fallback) and
@@ -686,6 +744,17 @@ export function App() {
       return;
     }
 
+    // Logs `/` search text entry — incremental highlight as you type. Esc clears
+    // the term and closes; Enter keeps the highlight and hands keys back so n/N
+    // can walk the matches.
+    if (view.kind === "logs" && view.searchInput) {
+      if (key.name === "escape") return setView({ ...view, searchInput: false, search: "", matchIdx: 0 });
+      if (key.name === "return" || key.name === "enter") return setView({ ...view, searchInput: false });
+      if (key.name === "backspace") return applyLogSearch((s) => s.slice(0, -1));
+      if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) return applyLogSearch((s) => s + key.sequence);
+      return;
+    }
+
     if (key.ctrl && key.name === "c") {
       // ctrl+shift+c → copy (the selection if any, else the current text view)
       // instead of quitting, so the muscle-memory copy chord doesn't kill kate.
@@ -741,7 +810,12 @@ export function App() {
 
     // ----- logs view -----
     if (view.kind === "logs") {
+      // Esc clears an active highlight first (so it doesn't close the view out
+      // from under a search); a second Esc — or q — backs out.
+      if (key.name === "escape" && view.search) return setView({ ...view, search: "", matchIdx: 0 });
       if (key.name === "escape" || key.name === "q") return goBack();
+      if (key.sequence === "/") return setView({ ...view, searchInput: true, search: "", matchIdx: 0 });
+      if (view.search && key.name === "n") return jumpMatch(key.shift ? -1 : 1);
       if (key.name === "c" || key.name === "y") return copyToClipboard(view.text, "log buffer");
       if (key.name === "w") return setView({ ...view, wrap: !view.wrap });
       // bottomOffset counts lines scrolled UP from the live tail (0 == pinned),
@@ -951,6 +1025,13 @@ export function App() {
   // Cluster/user for the active context, for the header (memoized on ctxName).
   const activeCtx = useMemo(() => client.contexts().find((c) => c.active), [ctxName]);
 
+  // Search hits for the logs view, recomputed when the buffer or term changes.
+  // LogsView paints these; the keyboard handler recomputes its own for jumps.
+  const logMatches = useMemo(
+    () => (view.kind === "logs" && view.search ? findMatches(logLines(view.text), view.search) : []),
+    [view],
+  );
+
   const kind = kindById(kindId);
   const paneTitle =
     view.kind === "logs"
@@ -1025,7 +1106,7 @@ export function App() {
               onRowClick={onRowClick}
             />
           )}
-          {view.kind === "logs" && <LogsView view={view} height={paneInnerH} width={dims.width - 30} />}
+          {view.kind === "logs" && <LogsView view={view} height={paneInnerH} width={dims.width - 30} matches={logMatches} />}
           {view.kind === "describe" && <DescribeView view={view} height={paneInnerH} width={dims.width - 30} />}
           {view.kind === "containers" && <ContainersView view={view} height={paneInnerH} />}
           {view.kind === "podpick" && <PodPickView view={view} height={paneInnerH} />}
@@ -1038,6 +1119,15 @@ export function App() {
       {/* Command palette / filter — float just below the header */}
       {cmdMode && <CommandPalette input={cmd} candidates={cmdCandidates} sel={cmdSel} dims={dims} top={HEADER_H} />}
       {searchMode && <FilterBar query={query} count={rows.length} dims={dims} top={HEADER_H} />}
+      {view.kind === "logs" && view.searchInput && (
+        <LogSearchBar
+          term={view.search}
+          count={logMatches.length}
+          pos={logMatches.length ? view.matchIdx : -1}
+          dims={dims}
+          top={HEADER_H}
+        />
+      )}
 
       {/* Port-forward modal — floats centered over the list */}
       {view.kind === "portpick" && <PortForwardModal view={view} dims={dims} />}
