@@ -42,6 +42,28 @@ export const FETCHERS: Record<string, Fetcher> = {
     })),
   }),
 
+  // Cluster-scoped: lists namespaces. Enter switches the active namespace. The
+  // current one is marked. Not affected by the all-namespaces toggle.
+  namespaces: async (c) => {
+    const { items } = await c.core.listNamespace();
+    const sorted = items.sort((a, b) => (a.metadata?.name ?? "").localeCompare(b.metadata?.name ?? ""));
+    return {
+      headers: ["NAME", "STATUS", "AGE"],
+      rows: sorted.map((n) => {
+        const name = n.metadata?.name ?? "";
+        const active = name === c.namespace;
+        const status = n.status?.phase ?? "";
+        const statusColor: CellColor = status === "Active" ? "ok" : status === "Terminating" ? "warn" : undefined;
+        return {
+          name,
+          namespace: "",
+          cells: [active ? `${name} (*)` : name, status, age(n.metadata?.creationTimestamp)],
+          colors: [active ? "info" : undefined, statusColor, undefined],
+        };
+      }),
+    };
+  },
+
   pods: async (c, ns) => {
     const [{ items }, metrics] = await Promise.all([
       ns ? c.core.listNamespacedPod({ namespace: ns }) : c.core.listPodForAllNamespaces(),
@@ -84,7 +106,16 @@ export const FETCHERS: Record<string, Fetcher> = {
         const cpuPct = m && cpuBase ? `${Math.round((m.cpuMilli / cpuBase) * 100)}%` : "-";
         const memPct = m && memBase ? `${Math.round((m.memMi / memBase) * 100)}%` : "-";
 
-        const readyColor: CellColor = total > 0 && ready === total ? "ok" : ready === 0 ? "err" : "warn";
+        // A finished pod (Completed/Succeeded) legitimately reports 0/N ready —
+        // grey it out instead of red, so it doesn't read as "failed / never ran".
+        const done = /^(Completed|Succeeded)$/.test(status);
+        const readyColor: CellColor = done
+          ? "dim"
+          : total > 0 && ready === total
+            ? "ok"
+            : ready === 0
+              ? "err"
+              : "warn";
         const restartColor: CellColor = restarts === 0 ? undefined : restarts > 5 ? "err" : "warn";
         const cpuColor: CellColor = m && cpuBase ? usageColor(m.cpuMilli, cpuBase) : "dim";
         const memColor: CellColor = m && memBase ? usageColor(m.memMi, memBase) : "dim";

@@ -6,6 +6,7 @@ import * as k8s from "@kubernetes/client-node";
 import { Writable, PassThrough } from "node:stream";
 import * as net from "node:net";
 
+import { loadConfig } from "../config";
 import { DESCRIBE_META } from "./kinds";
 import { FETCHERS } from "./fetchers";
 import { parseCpu, parseMem } from "./quantities";
@@ -43,10 +44,21 @@ export class Client {
     this.kc = new k8s.KubeConfig();
     this.kc.loadFromDefault();
 
-    const current = this.kc.getCurrentContext();
+    // Restore the last context kate was using, if it still exists — so a
+    // relaunch lands you back on the same cluster (k9s-style). Falls back to
+    // the kubeconfig's own current-context.
+    const cfg = loadConfig();
+    let current = this.kc.getCurrentContext();
+    if (cfg.lastContext && this.kc.getContexts().some((c) => c.name === cfg.lastContext)) {
+      this.kc.setCurrentContext(cfg.lastContext);
+      current = cfg.lastContext;
+    }
     this.context = current;
+
+    // Prefer the remembered namespace for this context, then the context's own
+    // default, then "default".
     const ctx = this.kc.getContextObject(current);
-    this.namespace = ctx?.namespace || "default";
+    this.namespace = cfg.namespaceByContext?.[current] || ctx?.namespace || "default";
 
     this.buildClients();
   }
@@ -109,7 +121,9 @@ export class Client {
   switchContext(name: string): void {
     this.kc.setCurrentContext(name);
     this.context = name;
-    this.namespace = this.kc.getContextObject(name)?.namespace || "default";
+    const cfg = loadConfig();
+    this.namespace =
+      cfg.namespaceByContext?.[name] || this.kc.getContextObject(name)?.namespace || "default";
     this.allNamespaces = false;
     this.buildClients();
   }
@@ -203,6 +217,39 @@ export class Client {
       for (const p of c.ports ?? []) if (p.containerPort) entries.push({ container: c.name, port: p.containerPort });
     }
     return { pod: podName, entries };
+  }
+
+  // Resolve the pods backing a row, for drilling into logs (k9s-style Enter).
+  // Pods return themselves; workloads resolve via their label selector; jobs via
+  // the standard job-name label. Pods are ordered running-first, then newest, so
+  // the representative pod (index 0) is the one you usually want.
+  async podsFor(kindId: string, namespace: string, name: string): Promise<string[]> {
+    if (kindId === "pods") return [name];
+
+    let labelSelector: string | undefined;
+    if (kindId === "jobs") {
+      labelSelector = `job-name=${name}`;
+    } else {
+      let labels: Record<string, string> | undefined;
+      if (kindId === "deployments") labels = (await this.apps.readNamespacedDeployment({ name, namespace })).spec?.selector?.matchLabels;
+      else if (kindId === "statefulsets") labels = (await this.apps.readNamespacedStatefulSet({ name, namespace })).spec?.selector?.matchLabels;
+      else if (kindId === "daemonsets") labels = (await this.apps.readNamespacedDaemonSet({ name, namespace })).spec?.selector?.matchLabels;
+      else if (kindId === "replicasets") labels = (await this.apps.readNamespacedReplicaSet({ name, namespace })).spec?.selector?.matchLabels;
+      else return [];
+      if (!labels || Object.keys(labels).length === 0) return [];
+      labelSelector = Object.entries(labels).map(([k, v]) => `${k}=${v}`).join(",");
+    }
+
+    const { items } = await this.core.listNamespacedPod({ namespace, labelSelector });
+    items.sort((a, b) => {
+      const ar = a.status?.phase === "Running" ? 0 : 1;
+      const br = b.status?.phase === "Running" ? 0 : 1;
+      if (ar !== br) return ar - br;
+      const at = new Date(a.metadata?.creationTimestamp ?? 0).getTime();
+      const bt = new Date(b.metadata?.creationTimestamp ?? 0).getTime();
+      return bt - at; // newest first
+    });
+    return items.map((p) => p.metadata?.name ?? "").filter(Boolean);
   }
 
   listForwards(): PortForwardEntry[] {

@@ -4,6 +4,28 @@
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../app" && pwd)"
 
+# Make sure bun is reachable inside non-login tmux popup shells (the kate.tmux
+# plugin launches us via `display-popup`, which doesn't source a login profile).
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+if ! command -v bun >/dev/null 2>&1; then
+  printf '\033[31mkate: `bun` not found in PATH\033[0m\n'
+  printf 'install bun: https://bun.sh\n\n'
+  read -n 1 -s -r -p "press any key to close..."
+  exit 1
+fi
+
+# First-run install (TPM / a fresh clone won't have node_modules).
+if [[ ! -d "$APP_DIR/node_modules" ]]; then
+  printf '\033[33mkate: first run, installing dependencies...\033[0m\n'
+  if ! (cd "$APP_DIR" && bun install); then
+    printf '\033[31mkate: bun install failed\033[0m\n'
+    read -n 1 -s -r -p "press any key to close..."
+    exit 1
+  fi
+  printf '\n'
+fi
+
 # Bun's fetch ignores the per-cluster CA that client-node reads from kubeconfig,
 # so verification fails against private CAs (e.g. GKE) out of the box. Rather
 # than disable TLS verification globally, we do what client-go (k9s/kubectl)

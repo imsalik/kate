@@ -1,21 +1,26 @@
 import { useRenderer, useTerminalDimensions, useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Client, kindById, canDescribe, canPortForward } from "./k8s";
+import { Client, kindById, canDescribe, canPortForward, canViewLogs } from "./k8s";
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
+import { saveConfig, rememberNamespace } from "./config";
 
-import { C } from "./ui/theme";
+import { C, applyTheme, THEME_NAMES, currentThemeName } from "./ui/theme";
 import { colWidths } from "./ui/format";
-import { SIDEBAR, POD_INDEX, filterNamespaces } from "./ui/nav";
+import { SIDEBAR, POD_INDEX } from "./ui/nav";
+import { matchCommands, type Candidate } from "./commands";
 
 import { Sidebar } from "./ui/components/Sidebar";
+import { CommandPalette } from "./ui/components/CommandPalette";
+import { ConfigView } from "./ui/components/ConfigView";
+import { Header } from "./ui/components/Header";
+import { PodPickView } from "./ui/components/PodPickView";
 import { TableView } from "./ui/components/TableView";
 import { LogsView } from "./ui/components/LogsView";
 import { DescribeView } from "./ui/components/DescribeView";
 import { ContainersView } from "./ui/components/ContainersView";
-import { NamespacesView } from "./ui/components/NamespacesView";
 import { ForwardsView } from "./ui/components/ForwardsView";
 import { PortForwardModal } from "./ui/components/PortForwardModal";
 import { HelpView } from "./ui/components/HelpView";
@@ -37,6 +42,14 @@ export function App() {
   const logAbortRef = useRef<AbortController | null>(null);
   const logBufRef = useRef<string>("");
 
+  // Refresh plumbing: `loadKeyRef` is the current selector (kind/ns/ctx) so we
+  // can tell a real navigation from a silent background poll; `tableSigRef` is a
+  // signature of the rendered table so a poll that returns identical data is a
+  // no-op (no setState → no redraw → no flicker). k9s polls too — the trick is
+  // diffing, not redrawing.
+  const loadKeyRef = useRef<string>("");
+  const tableSigRef = useRef<string>("");
+
   const [sideIndex, setSideIndex] = useState(POD_INDEX);
   const [focus, setFocus] = useState<Focus>("table");
 
@@ -54,6 +67,9 @@ export function App() {
   const [searchMode, setSearchMode] = useState(false);
   const [cmdMode, setCmdMode] = useState(false);
   const [cmd, setCmd] = useState("");
+  const [cmdSel, setCmdSel] = useState(0); // highlighted palette candidate
+  // Namespace names for the current context, cached for `:ns` completion.
+  const [nsCache, setNsCache] = useState<string[]>([]);
   // View navigation stack. A `list` frame is always at the bottom; drilling in
   // pushes more frames (contexts → namespaces → pods → containers → logs) and
   // Esc pops one level. The drill-down spine is the chain of `list` frames.
@@ -92,29 +108,53 @@ export function App() {
   const inputMode = searchMode || cmdMode;
   const inList = view.kind === "list";
 
+  // Clear the table the instant we change *what* we're looking at (kind /
+  // namespace / context), so a slow or failing fetch can never leave another
+  // kind's rows showing under the new title. (Plain `tick` refreshes don't
+  // clear — they'd flash empty every interval.)
+  useEffect(() => {
+    setTable({ headers: [], rows: [] });
+    setRowIndex(0);
+    tableSigRef.current = ""; // force the next fetch to render
+  }, [kindId, allNs, namespace, ctxName]);
+
   // ----- data fetch -------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
     client.allNamespaces = allNs;
     client.namespace = namespace;
-    setLoading(true);
+
+    // Loading indicator only for an actual navigation, not background polls —
+    // flashing "…" every interval is half the flicker.
+    const key = `${kindId}|${allNs}|${namespace}|${ctxName}`;
+    const navigated = key !== loadKeyRef.current;
+    loadKeyRef.current = key;
+    if (navigated) setLoading(true);
+
     client
       .fetch(kindId)
       .then((t) => {
         if (cancelled) return;
-        setTable(t);
+        // Skip the state update (and thus the redraw) when nothing changed.
+        const sig = JSON.stringify(t);
+        if (sig !== tableSigRef.current) {
+          tableSigRef.current = sig;
+          setTable(t);
+        }
         setLoading(false);
         setStatus(null);
       })
       .catch((e: any) => {
         if (cancelled) return;
+        setTable({ headers: [], rows: [] }); // don't keep stale rows on error
+        tableSigRef.current = "";
         setLoading(false);
         setStatus({ kind: "error", text: e?.message ?? String(e) });
       });
     return () => {
       cancelled = true;
     };
-  }, [kindId, allNs, namespace, tick]);
+  }, [kindId, allNs, namespace, ctxName, tick]);
 
   // Auto-refresh, paused while typing or away from the table view.
   useEffect(() => {
@@ -163,6 +203,35 @@ export function App() {
 
   const widths = useMemo(() => colWidths(table), [table]);
 
+  // Cache namespace names per context so the `:ns` palette can complete them.
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .namespaces()
+      .then((ns) => !cancelled && setNsCache(ns))
+      .catch(() => !cancelled && setNsCache([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [ctxName]);
+
+  // Live command-palette candidates: fuzzy-ranked verbs/resources, with dynamic
+  // arg completion against real context + namespace names.
+  const cmdCandidates = useMemo<Candidate[]>(
+    () =>
+      cmdMode
+        ? matchCommands(cmd, {
+            contexts: client.contexts().map((c) => c.name),
+            namespaces: nsCache,
+          })
+        : [],
+    [cmdMode, cmd, nsCache, ctxName],
+  );
+  // Keep the highlight in range as candidates shrink.
+  useEffect(() => {
+    if (cmdSel >= cmdCandidates.length) setCmdSel(Math.max(0, cmdCandidates.length - 1));
+  }, [cmdCandidates.length]);
+
   // ----- actions ----------------------------------------------------------
   // Aborting the follow stream can throw synchronously under Bun (not just as a
   // rejection), so always go through this guarded stopper.
@@ -195,25 +264,70 @@ export function App() {
     }
   }
 
-  function runCommand(text: string) {
-    const q = text.trim().toLowerCase();
-    if (!q) return;
-    // Aliases that open a view rather than a resource kind.
-    if (["pf", "portforward", "portforwards", "forwards"].includes(q)) return openForwards();
-    let best: { id: string; idx: number; score: number } | null = null;
-    for (let idx = 0; idx < SIDEBAR.length; idx++) {
-      const e = SIDEBAR[idx]!;
-      if (e.type !== "kind") continue;
-      const s = Math.max(fuzzyScore(q, e.id) ?? -Infinity, fuzzyScore(q, e.label.toLowerCase()) ?? -Infinity);
-      if (s > -Infinity && (best === null || s > best.score)) best = { id: e.id, idx, score: s };
+  // Jump the list to a resource kind and sync the sidebar selection.
+  function jumpToKind(id: string) {
+    gotoList(id);
+    const idx = SIDEBAR.findIndex((e) => e.type === "kind" && e.id === id);
+    if (idx >= 0) setSideIndex(idx);
+    setRowIndex(0);
+    setQuery("");
+  }
+
+  // Switch namespace by name directly (`:ns <name>`), persisting the choice.
+  function applyNamespaceByName(ns: string) {
+    setAllNs(false);
+    setNamespace(ns);
+    setRowIndex(0);
+    rememberNamespace(ctxName, ns);
+    setStatus({ kind: "info", text: `namespace: ${ns}` });
+  }
+
+  // Switch context by name directly (`:ctx <name>`).
+  function applyContextByName(name: string) {
+    if (!client.contexts().some((c) => c.name === name)) {
+      setStatus({ kind: "error", text: `no context "${name}"` });
+      return;
     }
-    if (best) {
-      gotoList(best.id);
-      setSideIndex(best.idx);
-      setRowIndex(0);
-      setQuery("");
-    } else {
-      setStatus({ kind: "error", text: `no resource matches "${text}"` });
+    if (name !== ctxName) {
+      client.switchContext(name);
+      setCtxName(client.context);
+      setNamespace(client.namespace);
+      setAllNs(false);
+      saveConfig({ lastContext: client.context });
+      setStatus({ kind: "info", text: `switched to ${name}` });
+    }
+    jumpToKind("pods");
+  }
+
+  function doApplyTheme(name: string) {
+    if (applyTheme(name)) setStatus({ kind: "info", text: `theme: ${name}` });
+    else setStatus({ kind: "error", text: `no theme "${name}"` });
+  }
+
+  // Execute a chosen palette candidate. Every branch is read-only.
+  function runCandidate(c: Candidate) {
+    const { name } = c.command;
+    switch (name) {
+      case "contexts":
+        return c.arg ? applyContextByName(c.arg) : jumpToKind("contexts");
+      case "namespace":
+        return c.arg ? applyNamespaceByName(c.arg) : openNamespaces();
+      case "forwards":
+        return openForwards();
+      case "theme":
+        return c.arg ? doApplyTheme(c.arg) : openConfig();
+      case "config":
+        return openConfig();
+      case "all":
+        setAllNs((v) => !v);
+        setRowIndex(0);
+        return;
+      case "help":
+        return pushView({ kind: "help" });
+      case "quit":
+        return renderer.destroy();
+      default:
+        return jumpToKind(name); // a resource kind
     }
   }
 
@@ -227,6 +341,7 @@ export function App() {
       setCtxName(client.context);
       setNamespace(client.namespace);
       setAllNs(false);
+      saveConfig({ lastContext: client.context }); // reopen here next launch
       setStatus({ kind: "info", text: `switched to ${r.name}` });
     }
     setRowIndex(0);
@@ -234,16 +349,32 @@ export function App() {
     openNamespaces("pods");
   }
 
-  // Enter on a pod: pick the container first (k9s-style) when there's more than
-  // one — streaming the wrong container is why "no logs" showed for sidecars.
-  function openPodLogs() {
+  // Open logs for a specific pod: pick the container first (k9s-style) when
+  // there's more than one — streaming the wrong container is why "no logs"
+  // showed for sidecars.
+  function logsForPod(namespace: string, name: string) {
+    client
+      .podContainers(namespace, name)
+      .then((cs) => {
+        if (cs.length <= 1) startLogs({ namespace, name }, cs[0]?.name ?? "");
+        else pushView({ kind: "containers", pod: { namespace, name }, items: cs, index: 0 });
+      })
+      .catch((e: any) => setStatus({ kind: "error", text: e?.message ?? String(e) }));
+  }
+
+  // Enter on a logs-capable row: pods go straight to logs; workloads/jobs
+  // resolve their backing pods first — one pod tails directly, several open a
+  // pod picker.
+  function openLogsForSelected() {
     const r = rows[rowIndex];
     if (!r) return;
+    if (kindId === "pods") return logsForPod(r.namespace, r.name);
     client
-      .podContainers(r.namespace, r.name)
-      .then((cs) => {
-        if (cs.length <= 1) startLogs({ namespace: r.namespace, name: r.name }, cs[0]?.name ?? "");
-        else pushView({ kind: "containers", pod: { namespace: r.namespace, name: r.name }, items: cs, index: 0 });
+      .podsFor(kindId, r.namespace, r.name)
+      .then((pods) => {
+        if (pods.length === 0) setStatus({ kind: "error", text: `no pods found for ${r.name}` });
+        else if (pods.length === 1) logsForPod(r.namespace, pods[0]!);
+        else pushView({ kind: "podpick", namespace: r.namespace, pods, index: 0, subtitle: r.name });
       })
       .catch((e: any) => setStatus({ kind: "error", text: e?.message ?? String(e) }));
   }
@@ -266,17 +397,43 @@ export function App() {
       });
   }
 
+  // Open the Namespaces list (a real resource list now, so it shows in the
+  // sidebar and the table fetch loads it). `next` records where Enter on a
+  // namespace should go afterwards: "back" to the resource we came from (the
+  // `n` quick-switch) or "pods" (the contexts → namespaces → pods drill).
   function openNamespaces(next: "back" | "pods" = "back") {
-    client
-      .namespaces()
-      .then((all) => pushView({ kind: "namespaces", all, filter: "", searching: false, index: 0, next }))
-      .catch((e: any) => setStatus({ kind: "error", text: e?.message ?? String(e) }));
+    const idx = SIDEBAR.findIndex((e) => e.type === "kind" && e.id === "namespaces");
+    if (idx >= 0) setSideIndex(idx);
+    setRowIndex(0);
+    setQuery("");
+    pushView({ kind: "list", kindId: "namespaces", nsReturn: next });
+  }
+
+  // Enter on a namespace row: switch the active namespace, persist it, then go
+  // where this list said to (pods, or back to the prior resource).
+  function switchToSelectedNamespace() {
+    const r = rows[rowIndex];
+    if (!r) return;
+    const nsReturn = view.kind === "list" ? view.nsReturn : undefined;
+    setAllNs(false);
+    setNamespace(r.name);
+    rememberNamespace(ctxName, r.name);
+    setRowIndex(0);
+    setQuery("");
+    if (nsReturn === "back") {
+      popView(); // back to the resource we were viewing, now in the new ns
+    } else {
+      setSideIndex(POD_INDEX);
+      pushView({ kind: "list", kindId: "pods" });
+    }
   }
 
   function describeSelected() {
     const r = rows[rowIndex];
     if (!r || !canDescribe(kindId)) return;
-    pushView({ kind: "describe", subtitle: `${kindId} ${r.namespace}/${r.name}`, text: "", scroll: 0, loading: true });
+    // Cluster-scoped resources (e.g. namespaces) have no namespace to show.
+    const target = r.namespace ? `${r.namespace}/${r.name}` : r.name;
+    pushView({ kind: "describe", subtitle: `${kindId} ${target}`, text: "", scroll: 0, loading: true });
     client
       .describe(kindId, r.namespace, r.name)
       .then((text) =>
@@ -326,43 +483,111 @@ export function App() {
     pushView({ kind: "forwards", index: 0, nonce: 0 });
   }
 
+  function openConfig() {
+    const idx = Math.max(0, THEME_NAMES.indexOf(currentThemeName));
+    pushView({ kind: "config", index: idx });
+  }
+
+  function closeCmd() {
+    setCmdMode(false);
+    setCmd("");
+    setCmdSel(0);
+  }
+
   // ----- keyboard ---------------------------------------------------------
   useKeyboard((key) => {
-    // Text-entry modes (search `/` and command `:`) win over everything.
-    if (inputMode) {
-      const buf = searchMode ? query : cmd;
-      const set = searchMode ? setQuery : setCmd;
+    // Command palette (`:`) — its own modal with a candidate list.
+    if (cmdMode) {
+      if (key.name === "escape") return closeCmd();
+      if (key.name === "up") return setCmdSel((i) => Math.max(0, i - 1));
+      if (key.name === "down") return setCmdSel((i) => Math.min(cmdCandidates.length - 1, i + 1));
+      if (key.name === "tab") {
+        const c = cmdCandidates[cmdSel];
+        if (c) {
+          setCmd(c.complete);
+          setCmdSel(0);
+        }
+        return;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        const c = cmdCandidates[cmdSel];
+        closeCmd();
+        if (c) runCandidate(c);
+        return;
+      }
+      if (key.name === "backspace") {
+        setCmd((s) => s.slice(0, -1));
+        setCmdSel(0);
+        return;
+      }
+      if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+        setCmd((s) => s + key.sequence);
+        setCmdSel(0);
+      }
+      return;
+    }
+
+    // Search (`/`) text entry — wins over view keys.
+    if (searchMode) {
       if (key.name === "escape") {
-        if (searchMode) setQuery("");
+        setQuery("");
         setSearchMode(false);
-        setCmdMode(false);
-        setCmd("");
       } else if (key.name === "return" || key.name === "enter") {
-        if (cmdMode) runCommand(cmd);
         setSearchMode(false);
-        setCmdMode(false);
-        setCmd("");
       } else if (key.name === "backspace") {
-        set(buf.slice(0, -1));
+        setQuery((q) => q.slice(0, -1));
       } else if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-        set(buf + key.sequence);
+        setQuery((q) => q + key.sequence);
       }
       return;
     }
 
     if (key.ctrl && key.name === "c") return renderer.destroy();
 
+    // Universal jump to the resource sidebar. Tab works from anywhere; h / ←
+    // also work from the menu-like views. From a sub-view this collapses the
+    // stack back to the list spine first — the sidebar only highlights over a
+    // list, so otherwise focusing it would do nothing visible. The portpick
+    // modal owns these keys for its own fields, and a live ns-filter is text.
+    // h / ← bail to the sidebar from list + the menu-like pickers, but NOT from
+    // logs/describe (a reader pressing h by habit shouldn't get yanked out —
+    // Tab still works there).
+    const hOk =
+      view.kind === "list" ||
+      view.kind === "containers" ||
+      view.kind === "podpick" ||
+      view.kind === "config";
+    if (view.kind !== "portpick") {
+      const wantsSidebar = key.name === "tab" || ((key.name === "h" || key.name === "left") && hOk);
+      if (wantsSidebar) {
+        if (view.kind === "list") {
+          // On a list, Tab toggles focus; h / ← go straight to the sidebar.
+          if (key.name === "tab") setFocus((f) => (f === "sidebar" ? "table" : "sidebar"));
+          else setFocus("sidebar");
+        } else {
+          if (view.kind === "logs") stopLogStream();
+          setStack((s) => {
+            const lists = s.filter((f) => f.kind === "list");
+            return lists.length ? lists : [{ kind: "list", kindId: "pods" }];
+          });
+          setFocus("sidebar");
+        }
+        return;
+      }
+    }
+
     // ----- logs view -----
     if (view.kind === "logs") {
       if (key.name === "escape" || key.name === "q") return goBack();
       if (key.name === "w") return setView({ ...view, wrap: !view.wrap });
-      if (key.ctrl && key.name === "u") return setView({ ...view, bottomOffset: view.bottomOffset + 10 });
-      if (key.ctrl && key.name === "d") return setView({ ...view, bottomOffset: Math.max(0, view.bottomOffset - 10) });
+      // bottomOffset counts lines scrolled UP from the live tail (0 == pinned).
+      if ((key.ctrl && key.name === "u") || key.name === "pageup") return setView({ ...view, bottomOffset: view.bottomOffset + 10 });
+      if ((key.ctrl && key.name === "d") || key.name === "pagedown") return setView({ ...view, bottomOffset: Math.max(0, view.bottomOffset - 10) });
       if (key.name === "k" || key.name === "up") return setView({ ...view, bottomOffset: view.bottomOffset + 1 });
       if (key.name === "j" || key.name === "down")
         return setView({ ...view, bottomOffset: Math.max(0, view.bottomOffset - 1) });
-      if (key.shift && key.name === "g") return setView({ ...view, bottomOffset: 0 });
-      if (key.name === "g") return setView({ ...view, bottomOffset: Number.MAX_SAFE_INTEGER });
+      if ((key.shift && key.name === "g") || key.name === "end") return setView({ ...view, bottomOffset: 0 });
+      if (key.name === "g" || key.name === "home") return setView({ ...view, bottomOffset: Number.MAX_SAFE_INTEGER });
       return;
     }
 
@@ -381,54 +606,32 @@ export function App() {
       return;
     }
 
-    // ----- namespaces view (filters like the lists: `/` then type) -----
-    if (view.kind === "namespaces") {
-      const filtered = filterNamespaces(view.all, view.filter);
-      // While typing the filter (after `/`): same semantics as list search —
-      // enter keeps the filter, esc clears it; both leave typing mode.
-      if (view.searching) {
-        if (key.name === "escape") return setView({ ...view, filter: "", searching: false, index: 0 });
-        if (key.name === "return" || key.name === "enter") return setView({ ...view, searching: false });
-        if (key.name === "backspace") return setView({ ...view, filter: view.filter.slice(0, -1), index: 0 });
-        if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta)
-          return setView({ ...view, filter: view.filter + key.sequence, index: 0 });
-        return;
-      }
-      if (key.sequence === "/") return setView({ ...view, searching: true });
-      if (key.name === "escape") {
-        if (view.filter) return setView({ ...view, filter: "", index: 0 }); // clear filter first
-        return goBack();
-      }
-      if (key.name === "j" || key.name === "down") return setView({ ...view, index: Math.min(filtered.length - 1, view.index + 1) });
-      if (key.name === "k" || key.name === "up") return setView({ ...view, index: Math.max(0, view.index - 1) });
-      if (key.name === "return" || key.name === "enter") {
-        const ns = filtered[view.index];
-        if (ns) {
-          setAllNs(false);
-          setNamespace(ns);
-          setRowIndex(0);
-        }
-        // "pods" drills deeper (keeps namespaces in the stack for Esc-back);
-        // "back" just applied the namespace to the current list.
-        if (view.next === "pods") {
-          setSideIndex(POD_INDEX);
-          pushView({ kind: "list", kindId: "pods" });
-        } else {
-          popView();
-        }
+    // ----- pod picker (a workload's pods → logs) -----
+    if (view.kind === "podpick") {
+      if (key.name === "escape" || key.name === "q") return goBack();
+      if (key.name === "j" || key.name === "down")
+        return setView({ ...view, index: Math.min(view.pods.length - 1, view.index + 1) });
+      if (key.name === "k" || key.name === "up")
+        return setView({ ...view, index: Math.max(0, view.index - 1) });
+      if (key.name === "return" || key.name === "enter" || key.name === "l") {
+        const p = view.pods[view.index];
+        if (p) logsForPod(view.namespace, p);
         return;
       }
       return;
     }
+
+    // (Namespaces is now a normal resource list — handled by the list view
+    // section below, with Enter routed to switchToSelectedNamespace.)
 
     // ----- describe view (scrollable YAML) -----
     if (view.kind === "describe") {
       if (key.name === "escape" || key.name === "q") return goBack();
       if (key.name === "j" || key.name === "down") return setView({ ...view, scroll: view.scroll + 1 });
       if (key.name === "k" || key.name === "up") return setView({ ...view, scroll: Math.max(0, view.scroll - 1) });
-      if (key.ctrl && key.name === "d") return setView({ ...view, scroll: view.scroll + 10 });
-      if (key.ctrl && key.name === "u") return setView({ ...view, scroll: Math.max(0, view.scroll - 10) });
-      if (key.name === "g") return setView({ ...view, scroll: 0 });
+      if ((key.ctrl && key.name === "d") || key.name === "pagedown") return setView({ ...view, scroll: view.scroll + 10 });
+      if ((key.ctrl && key.name === "u") || key.name === "pageup") return setView({ ...view, scroll: Math.max(0, view.scroll - 10) });
+      if (key.name === "g" || key.name === "home") return setView({ ...view, scroll: 0 });
       return;
     }
 
@@ -496,6 +699,19 @@ export function App() {
       return;
     }
 
+    // ----- config / settings (live theme picker) -----
+    if (view.kind === "config") {
+      if (key.name === "escape" || key.name === "q" || key.name === "return" || key.name === "enter") return goBack();
+      const move = (d: 1 | -1) => {
+        const i = Math.min(THEME_NAMES.length - 1, Math.max(0, view.index + d));
+        applyTheme(THEME_NAMES[i]!); // live preview + persist as you browse
+        setView({ ...view, index: i });
+      };
+      if (key.name === "j" || key.name === "down") return move(1);
+      if (key.name === "k" || key.name === "up") return move(-1);
+      return;
+    }
+
     // ----- list view -----
     if (key.name === "escape") {
       if (query) {
@@ -510,6 +726,7 @@ export function App() {
     if (key.sequence === "/") return setSearchMode(true);
     if (key.sequence === ":") {
       setCmd("");
+      setCmdSel(0);
       return setCmdMode(true);
     }
     if (key.name === "r") return setTick((t) => t + 1);
@@ -522,31 +739,34 @@ export function App() {
     if (key.shift && key.name === "f") return openForwards();
     if (key.name === "d") return describeSelected();
     if (key.name === "f") return portForwardSelected();
-    if (key.name === "tab") return setFocus((f) => (f === "sidebar" ? "table" : "sidebar"));
 
     if (focus === "sidebar") {
       if (key.name === "j" || key.name === "down") return moveSidebar(1);
       if (key.name === "k" || key.name === "up") return moveSidebar(-1);
-      if (key.name === "l" || key.name === "return" || key.name === "enter") return setFocus("table");
+      if (key.name === "l" || key.name === "right" || key.name === "return" || key.name === "enter") return setFocus("table");
       return;
     }
 
-    // focus === table
-    if (key.name === "h") return setFocus("sidebar");
-    if (key.name === "j" || key.name === "down") return setRowIndex((i) => Math.min(rows.length - 1, i + 1));
+    // focus === table. A page == one visible screen of rows. (h / ← / tab are
+    // handled by the universal sidebar jump above.)
+    const page = Math.max(1, tableViewH - 1);
+    const last = Math.max(0, rows.length - 1);
+    if (key.name === "j" || key.name === "down") return setRowIndex((i) => Math.min(last, i + 1));
     if (key.name === "k" || key.name === "up") return setRowIndex((i) => Math.max(0, i - 1));
-    if (key.name === "g") return setRowIndex(0);
-    if (key.shift && key.name === "g") return setRowIndex(Math.max(0, rows.length - 1));
-    if (key.ctrl && key.name === "d") return setRowIndex((i) => Math.min(rows.length - 1, i + 10));
-    if (key.ctrl && key.name === "u") return setRowIndex((i) => Math.max(0, i - 10));
+    if (key.name === "g" || key.name === "home") return setRowIndex(0);
+    if ((key.shift && key.name === "g") || key.name === "end") return setRowIndex(last);
+    if ((key.ctrl && key.name === "d") || key.name === "pagedown") return setRowIndex((i) => Math.min(last, i + page));
+    if ((key.ctrl && key.name === "u") || key.name === "pageup") return setRowIndex((i) => Math.max(0, i - page));
     if (key.name === "return" || key.name === "enter" || key.name === "l") {
       if (kindId === "contexts") switchToSelectedContext();
-      else if (kindId === "pods") openPodLogs();
+      else if (kindId === "namespaces") switchToSelectedNamespace();
+      else if (canViewLogs(kindId)) openLogsForSelected();
     }
   });
 
   // ----- layout math ------------------------------------------------------
-  const bodyH = Math.max(3, dims.height - 4); // minus header(1) + footer(2) + margins
+  const HEADER_H = 3; // the Header renders 3 aligned rows
+  const bodyH = Math.max(3, dims.height - HEADER_H - 3); // minus header + footer(2) + margin
   const paneInnerH = Math.max(1, bodyH - 2); // minus pane border top/bottom
   const tableViewH = Math.max(1, paneInnerH - 1); // minus column-header row
   const start = Math.min(
@@ -560,6 +780,9 @@ export function App() {
     () => new Set(client.listForwards().map((f) => f.pod)),
     [stack, tick],
   );
+  const forwardsCount = useMemo(() => client.listForwards().length, [stack, tick, status]);
+  // Cluster/user for the active context, for the header (memoized on ctxName).
+  const activeCtx = useMemo(() => client.contexts().find((c) => c.active), [ctxName]);
 
   const kind = kindById(kindId);
   const paneTitle =
@@ -569,12 +792,14 @@ export function App() {
         ? `Describe · ${view.subtitle}`
         : view.kind === "containers"
           ? `Containers · ${view.pod.namespace}/${view.pod.name}`
+          : view.kind === "podpick"
+          ? `Pods · ${view.subtitle}`
           : view.kind === "forwards"
             ? "Port Forwards"
-            : view.kind === "namespaces"
-              ? "Namespaces"
-              : view.kind === "help"
-                ? "Help"
+            : view.kind === "help"
+              ? "Help"
+              : view.kind === "config"
+                ? "Settings"
                 : stack.length > 1
                     ? `${kind?.title ?? kindId}  ‹ ${namespace}`
                     : kind?.title ?? kindId;
@@ -582,17 +807,19 @@ export function App() {
   return (
     <box flexDirection="column" width={dims.width} height={dims.height} backgroundColor={C.bg}>
       {/* Header */}
-      <box flexDirection="row" paddingX={1} backgroundColor={C.surface}>
-        <text fg={C.accentLight}>kate </text>
-        <text fg={C.textDim}>ctx </text>
-        <text fg={C.text}>{ctxName} </text>
-        <text fg={C.textDim}>ns </text>
-        <text fg={C.accent}>{allNs ? "<all>" : namespace} </text>
-        <box flexGrow={1} />
-        <text fg={C.textDim}>{kind?.title ?? kindId} </text>
-        <text fg={C.accent}>[{rows.length}]</text>
-        {loading && <text fg={C.textDim}> …</text>}
-      </box>
+      <Header
+        ctxName={ctxName}
+        cluster={activeCtx?.cluster ?? ctxName}
+        user={activeCtx?.user ?? ""}
+        namespace={namespace}
+        allNs={allNs}
+        kindTitle={kind?.title ?? kindId}
+        count={rows.length}
+        loading={loading}
+        forwards={forwardsCount}
+        theme={currentThemeName}
+        refreshSecs={Math.round(REFRESH_MS / 1000)}
+      />
 
       {/* Body: sidebar + main pane */}
       <box flexDirection="row" flexGrow={1} gap={1} paddingX={1}>
@@ -625,11 +852,15 @@ export function App() {
           {view.kind === "logs" && <LogsView view={view} height={paneInnerH} width={dims.width - 30} />}
           {view.kind === "describe" && <DescribeView view={view} height={paneInnerH} width={dims.width - 30} />}
           {view.kind === "containers" && <ContainersView view={view} height={paneInnerH} />}
+          {view.kind === "podpick" && <PodPickView view={view} height={paneInnerH} />}
           {view.kind === "forwards" && <ForwardsView forwards={client.listForwards()} index={view.index} height={paneInnerH} />}
-          {view.kind === "namespaces" && <NamespacesView view={view} height={paneInnerH} current={namespace} />}
           {view.kind === "help" && <HelpView />}
+          {view.kind === "config" && <ConfigView view={view} />}
         </box>
       </box>
+
+      {/* Command palette — floats near the top over everything */}
+      {cmdMode && <CommandPalette input={cmd} candidates={cmdCandidates} sel={cmdSel} dims={dims} />}
 
       {/* Port-forward modal — floats centered over the list */}
       {view.kind === "portpick" && <PortForwardModal view={view} dims={dims} />}

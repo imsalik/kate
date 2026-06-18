@@ -9,12 +9,17 @@ export type Focus = "sidebar" | "table";
 // `list` frames are resource tables and form the drill-down spine
 // (contexts → namespaces → pods); everything else is a sub-view on top.
 export type View =
-  | { kind: "list"; kindId: string }
+  // `nsReturn` is only set on the Namespaces list, recording where Enter should
+  // go after picking a namespace: "back" pops to the resource we came from,
+  // "pods" drills into pods (the contexts → namespaces → pods flow).
+  | { kind: "list"; kindId: string; nsReturn?: "back" | "pods" }
   | { kind: "help" }
-  // namespaces filters like the lists: `/` starts the fuzzy filter, j/k move.
-  // `next` decides where Enter goes: "back" (switch ns) or "pods" (drill in).
-  | { kind: "namespaces"; all: string[]; filter: string; searching: boolean; index: number; next: "back" | "pods" }
+  // Settings. `index` walks the theme list; moving previews the theme live.
+  | { kind: "config"; index: number }
   | { kind: "containers"; pod: { namespace: string; name: string }; items: ContainerInfo[]; index: number }
+  // pod picker shown when a workload (job/deployment/…) has several pods; Enter
+  // drills into the chosen pod's logs. `subtitle` is the parent workload name.
+  | { kind: "podpick"; namespace: string; pods: string[]; index: number; subtitle: string }
   | { kind: "describe"; subtitle: string; text: string; scroll: number; loading: boolean }
   // port-forward modal: pick a container::port, edit the local port, confirm.
   // field: 0=container port, 1=local port, 2=OK, 3=Cancel (arrow-key nav).

@@ -6,6 +6,7 @@ import type { Kind } from "./types";
 // Drives the sidebar order and grouping.
 export const KINDS: Kind[] = [
   { id: "contexts", title: "Contexts", group: "Cluster" },
+  { id: "namespaces", title: "Namespaces", group: "Cluster" },
 
   { id: "pods", title: "Pods", group: "Workloads" },
   { id: "deployments", title: "Deployments", group: "Workloads" },
@@ -34,6 +35,7 @@ export function kindById(id: string): Kind | undefined {
 
 // apiVersion/kind per resource, for the generic read used by `describe`.
 export const DESCRIBE_META: Record<string, { apiVersion: string; kind: string }> = {
+  namespaces: { apiVersion: "v1", kind: "Namespace" },
   pods: { apiVersion: "v1", kind: "Pod" },
   deployments: { apiVersion: "apps/v1", kind: "Deployment" },
   replicasets: { apiVersion: "apps/v1", kind: "ReplicaSet" },
@@ -60,4 +62,12 @@ export function canDescribe(kindId: string): boolean {
 const PF_KINDS = new Set(["pods", "deployments", "statefulsets", "daemonsets", "replicasets", "services"]);
 export function canPortForward(kindId: string): boolean {
   return PF_KINDS.has(kindId);
+}
+
+// Kinds whose Enter drills into pod logs: pods directly, plus workloads/jobs
+// that resolve to backing pods. (cronjobs spawn jobs, so they're indirect —
+// drill cronjob → jobs → logs.)
+const LOG_KINDS = new Set(["pods", "deployments", "statefulsets", "daemonsets", "replicasets", "jobs"]);
+export function canViewLogs(kindId: string): boolean {
+  return LOG_KINDS.has(kindId);
 }
