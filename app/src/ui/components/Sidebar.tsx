@@ -33,7 +33,7 @@ export function Sidebar({
         if (e.type === "header") {
           return (
             <box key={i} paddingX={1} marginTop={i === 0 ? 0 : 1}>
-              <text fg={C.accentDim}>{e.label.toUpperCase()}</text>
+              <text fg={C.accentDim} selectable={false}>{e.label.toUpperCase()}</text>
             </box>
           );
         }
@@ -49,8 +49,8 @@ export function Sidebar({
             paddingX={1}
             onMouseDown={() => onSelect(e.id)}
           >
-            <text fg={markerFg}>{active || cursor ? "▌ " : "  "}</text>
-            <text fg={labelFg}>{active ? <b>{e.label}</b> : e.label}</text>
+            <text fg={markerFg} selectable={false}>{active || cursor ? "▌ " : "  "}</text>
+            <text fg={labelFg} selectable={false}>{active ? <b>{e.label}</b> : e.label}</text>
           </box>
         );
       })}

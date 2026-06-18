@@ -19,9 +19,9 @@ export function DescribeView({
   const w = Math.max(1, width);
   return (
     <box flexDirection="column" paddingX={1}>
-      <text fg={C.textDim}>{`${lines.length} lines · ${scroll}/${maxScroll} · j/k scroll · g top · esc back`}</text>
+      <text fg={C.textDim}>{`${lines.length} lines · ${scroll}/${maxScroll}`}</text>
       {window.map((l, i) => (
-        <text key={scroll + i}>
+        <text key={scroll + i} selectable>
           {truncSegs(yamlSegs(l), w).map((s, j) => (
             <span key={j} fg={s.fg}>{s.t}</span>
           ))}

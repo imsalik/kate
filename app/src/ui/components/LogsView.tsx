@@ -34,17 +34,24 @@ export function LogsView({
 
   const pinned = clampedOffset === 0;
   let statusLine: string;
+  let statusFg = C.textDim;
   if (lines.length === 0) {
     statusLine = view.streaming ? "⏳ waiting for output — container may be idle or has no logs" : "(no logs)";
+  } else if (pinned) {
+    statusLine = `● live tail · ${lines.length} lines · ${view.wrap ? "wrap" : "nowrap"}`;
+    statusFg = C.ok;
   } else {
-    statusLine = `${lines.length} lines · ${pinned ? "● live tail" : "scrollback"} · ${view.wrap ? "wrap" : "nowrap"} · k/j scroll · ^u/^d page · w wrap · G tail · esc back`;
+    // Paused: auto-scroll is held so reading isn't disrupted. Keep it short —
+    // just say it's paused and how to get back to the live tail.
+    statusLine = `⏸ paused · G for live`;
+    statusFg = C.warn;
   }
 
   return (
     <box flexDirection="column" paddingX={1}>
-      <text fg={C.textDim}>{statusLine}</text>
+      <text fg={statusFg}>{statusLine}</text>
       {rows.map((segs, i) => (
-        <text key={i}>
+        <text key={i} selectable>
           {segs.map((s, j) => (
             <span key={j} fg={s.fg}>{s.t}</span>
           ))}

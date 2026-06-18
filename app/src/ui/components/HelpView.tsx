@@ -24,6 +24,7 @@ export function HelpView() {
       ["f", "port-forward a pod (pick a port if several)"],
       ["shift-f", "list / stop active port-forwards (also :pf)"],
       ["w", "toggle line wrap (in the logs view)"],
+      ["c / select", "copy logs or describe to clipboard (mouse-select too)"],
       ["/ <text>", "fuzzy filter rows"],
       ["a", "toggle all-namespaces"],
       ["n", "open Namespaces (enter on one switches to it)"],

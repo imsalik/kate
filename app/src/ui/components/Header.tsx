@@ -11,7 +11,7 @@ function parseGke(name: string): { project: string; location: string; cluster: s
 }
 
 function Dot() {
-  return <text fg={C.textDim}>{"  ·  "}</text>;
+  return <text fg={C.textDim} selectable={false}>{"  ·  "}</text>;
 }
 
 // The top info panel: a rounded, bordered bar. Identity on the left (cluster +
@@ -75,19 +75,19 @@ export function Header({
       {/* left: identity + namespace */}
       <box flexDirection="column">
         <box flexDirection="row">
-          <text fg={C.accent}>{"⎈ "}</text>
-          <text fg={C.accentLight}><b>{primary}</b></text>
+          <text fg={C.accent} selectable={false}>{"⎈ "}</text>
+          <text fg={C.accentLight} selectable={false}><b>{primary}</b></text>
         </box>
         <box flexDirection="row">
           {sub.map(([s, fg], i) => (
             <box key={i} flexDirection="row">
               {i > 0 && <Dot />}
-              <text fg={fg}>{s}</text>
+              <text fg={fg} selectable={false}>{s}</text>
             </box>
           ))}
           <Dot />
-          <text fg={C.textDim}>ns </text>
-          <text fg={C.accent}><b>{allNs ? "all" : namespace}</b></text>
+          <text fg={C.textDim} selectable={false}>ns </text>
+          <text fg={C.accent} selectable={false}><b>{allNs ? "all" : namespace}</b></text>
         </box>
       </box>
 
@@ -95,13 +95,13 @@ export function Header({
       <box flexGrow={1} />
       <box flexDirection="column" alignItems="flex-end">
         <box flexDirection="row">
-          <text fg={C.text}>{kindTitle}</text>
-          <text fg={C.accentLight}><b>{`  ${count}`}</b></text>
-          {loading && <text fg={C.textDim}>{"  ⋯"}</text>}
-          {forwards > 0 && <text fg={C.ok}>{`   ⇄ ${forwards}`}</text>}
+          <text fg={C.text} selectable={false}>{kindTitle}</text>
+          <text fg={C.accentLight} selectable={false}><b>{`  ${count}`}</b></text>
+          {loading && <text fg={C.textDim} selectable={false}>{"  ⋯"}</text>}
+          {forwards > 0 && <text fg={C.ok} selectable={false}>{`   ⇄ ${forwards}`}</text>}
         </box>
         <box flexDirection="row">
-          <text fg={C.textDim}>{`⟳ ${refreshSecs}s`}</text>
+          <text fg={C.textDim} selectable={false}>{`⟳ ${refreshSecs}s`}</text>
         </box>
       </box>
     </box>

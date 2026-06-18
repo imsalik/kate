@@ -5,6 +5,7 @@ import { Client, kindById, canDescribe, canPortForward, canViewLogs } from "./k8
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
+import { copyToClipboard as clipboardCopy } from "./lib/clipboard";
 import { saveConfig, rememberNamespace } from "./config";
 
 import { C, applyTheme, THEME_NAMES, currentThemeName } from "./ui/theme";
@@ -156,6 +157,14 @@ export function App() {
     };
   }, [kindId, allNs, namespace, ctxName, tick]);
 
+  // Transient status: clear it after a moment so the footer reverts to hints.
+  // Errors linger a little longer than info confirmations.
+  useEffect(() => {
+    if (!status) return;
+    const id = setTimeout(() => setStatus(null), status.kind === "error" ? 6000 : 2500);
+    return () => clearTimeout(id);
+  }, [status]);
+
   // Auto-refresh, paused while typing or away from the table view.
   useEffect(() => {
     if (inputMode || !inList) return;
@@ -167,12 +176,39 @@ export function App() {
   const streamingLogs = view.kind === "logs" && view.streaming;
   useEffect(() => {
     if (!streamingLogs) return;
+    const countLines = (s: string) => (s === "" ? 0 : s.replace(/\n$/, "").split("\n").length);
     const flush = () =>
-      setView((v) => (v.kind === "logs" ? { ...v, text: logBufRef.current } : v));
+      setView((v) => {
+        if (v.kind !== "logs") return v;
+        const text = logBufRef.current;
+        // bottomOffset === 0 means "follow the live tail" → always show the end.
+        if (v.bottomOffset === 0) return { ...v, text };
+        // Scrolled up (paused): incoming lines must not yank what you're reading.
+        // bottomOffset counts lines up from the bottom, so grow it by the number
+        // of newly appended lines to keep the same absolute lines on screen.
+        const added = Math.max(0, countLines(text) - countLines(v.text));
+        return { ...v, text, bottomOffset: Math.min(logMaxOffset(text), v.bottomOffset + added) };
+      });
     flush();
     const id = setInterval(flush, 250);
     return () => clearInterval(id);
   }, [streamingLogs]);
+
+  // Copy-on-selection: when a mouse selection finishes, push it to the system
+  // clipboard via OSC 52 (works over SSH/tmux). Log & describe lines are marked
+  // `selectable`, so this covers the read-only text views.
+  useEffect(() => {
+    const onSelection = (sel: { getSelectedText?: () => string } | null) => {
+      const text = sel?.getSelectedText?.() ?? "";
+      if (!text) return;
+      clipboardCopy(text);
+      setStatus({ kind: "info", text: `copied ${text.split("\n").length} line(s) to clipboard` });
+    };
+    renderer.on("selection", onSelection);
+    return () => {
+      renderer.off("selection", onSelection);
+    };
+  }, [renderer]);
 
   // Tear the stream down if the app exits while it's open.
   useEffect(
@@ -492,6 +528,31 @@ export function App() {
     setCmdSel(0);
   }
 
+  // Max scroll-up for the logs view, in lines (0 == live tail). Clamps
+  // bottomOffset so paging/scrolling up can't overshoot the top — overshooting
+  // is what left the view "stuck" until you scrolled all the way back down.
+  function logMaxOffset(text: string): number {
+    const n = text === "" ? 0 : text.replace(/\n$/, "").split("\n").length;
+    return Math.max(0, n - Math.max(1, paneInnerH - 1));
+  }
+  // Same idea for the describe view's top-down scroll offset.
+  function describeMaxScroll(text: string, loading: boolean): number {
+    const n = loading ? 1 : text.split("\n").length;
+    return Math.max(0, n - Math.max(1, paneInnerH - 1));
+  }
+
+  // Copy text to the system clipboard (native helper, OSC 52 fallback) and
+  // report the outcome in the footer.
+  function copyToClipboard(text: string, label: string) {
+    if (!text) return setStatus({ kind: "info", text: "nothing to copy" });
+    const ok = clipboardCopy(text);
+    setStatus(
+      ok
+        ? { kind: "info", text: `copied ${label} to clipboard` }
+        : { kind: "error", text: "could not copy to clipboard" },
+    );
+  }
+
   // ----- mouse (basics: scroll + click) -----------------------------------
   // The Enter action for a row, but driven by an explicit index (a click need
   // not match the keyboard selection).
@@ -526,10 +587,22 @@ export function App() {
     const STEP = 3;
     if (view.kind === "logs")
       return setView((v) =>
-        v.kind === "logs" ? { ...v, bottomOffset: Math.max(0, v.bottomOffset + (dir === "up" ? STEP : -STEP)) } : v,
+        v.kind === "logs"
+          ? {
+              ...v,
+              bottomOffset:
+                dir === "up"
+                  ? Math.min(logMaxOffset(v.text), v.bottomOffset + STEP)
+                  : Math.max(0, v.bottomOffset - STEP),
+            }
+          : v,
       );
     if (view.kind === "describe")
-      return setView((v) => (v.kind === "describe" ? { ...v, scroll: Math.max(0, v.scroll + d * STEP) } : v));
+      return setView((v) =>
+        v.kind === "describe"
+          ? { ...v, scroll: Math.max(0, Math.min(describeMaxScroll(v.text, v.loading), v.scroll + d * STEP)) }
+          : v,
+      );
     if (view.kind === "containers")
       return setView((v) =>
         v.kind === "containers" ? { ...v, index: Math.min(v.items.length - 1, Math.max(0, v.index + d)) } : v,
@@ -613,7 +686,18 @@ export function App() {
       return;
     }
 
-    if (key.ctrl && key.name === "c") return renderer.destroy();
+    if (key.ctrl && key.name === "c") {
+      // ctrl+shift+c → copy (the selection if any, else the current text view)
+      // instead of quitting, so the muscle-memory copy chord doesn't kill kate.
+      if (key.shift) {
+        const sel = renderer.getSelection()?.getSelectedText() ?? "";
+        if (sel) return copyToClipboard(sel, `${sel.split("\n").length} line(s)`);
+        if (view.kind === "logs") return copyToClipboard(view.text, "log buffer");
+        if (view.kind === "describe") return copyToClipboard(view.text, "describe output");
+        return;
+      }
+      return renderer.destroy();
+    }
 
     // Universal jump to the resource sidebar. Tab works from anywhere; h / ←
     // also work from the menu-like views. From a sub-view this collapses the
@@ -647,18 +731,29 @@ export function App() {
       }
     }
 
+    // Command palette opens from anywhere (except the port-forward form, which
+    // owns its own keys) — so you can jump to any resource without backing out.
+    if (key.sequence === ":" && view.kind !== "portpick") {
+      setCmd("");
+      setCmdSel(0);
+      return setCmdMode(true);
+    }
+
     // ----- logs view -----
     if (view.kind === "logs") {
       if (key.name === "escape" || key.name === "q") return goBack();
+      if (key.name === "c" || key.name === "y") return copyToClipboard(view.text, "log buffer");
       if (key.name === "w") return setView({ ...view, wrap: !view.wrap });
-      // bottomOffset counts lines scrolled UP from the live tail (0 == pinned).
-      if ((key.ctrl && key.name === "u") || key.name === "pageup") return setView({ ...view, bottomOffset: view.bottomOffset + 10 });
+      // bottomOffset counts lines scrolled UP from the live tail (0 == pinned),
+      // clamped to the top so scrolling up can't overshoot and get stuck.
+      const lmax = logMaxOffset(view.text);
+      if ((key.ctrl && key.name === "u") || key.name === "pageup") return setView({ ...view, bottomOffset: Math.min(lmax, view.bottomOffset + 10) });
       if ((key.ctrl && key.name === "d") || key.name === "pagedown") return setView({ ...view, bottomOffset: Math.max(0, view.bottomOffset - 10) });
-      if (key.name === "k" || key.name === "up") return setView({ ...view, bottomOffset: view.bottomOffset + 1 });
+      if (key.name === "k" || key.name === "up") return setView({ ...view, bottomOffset: Math.min(lmax, view.bottomOffset + 1) });
       if (key.name === "j" || key.name === "down")
         return setView({ ...view, bottomOffset: Math.max(0, view.bottomOffset - 1) });
       if ((key.shift && key.name === "g") || key.name === "end") return setView({ ...view, bottomOffset: 0 });
-      if (key.name === "g" || key.name === "home") return setView({ ...view, bottomOffset: Number.MAX_SAFE_INTEGER });
+      if (key.name === "g" || key.name === "home") return setView({ ...view, bottomOffset: lmax });
       return;
     }
 
@@ -698,9 +793,11 @@ export function App() {
     // ----- describe view (scrollable YAML) -----
     if (view.kind === "describe") {
       if (key.name === "escape" || key.name === "q") return goBack();
-      if (key.name === "j" || key.name === "down") return setView({ ...view, scroll: view.scroll + 1 });
+      if (key.name === "c" || key.name === "y") return copyToClipboard(view.text, "describe output");
+      const dmax = describeMaxScroll(view.text, view.loading);
+      if (key.name === "j" || key.name === "down") return setView({ ...view, scroll: Math.min(dmax, view.scroll + 1) });
       if (key.name === "k" || key.name === "up") return setView({ ...view, scroll: Math.max(0, view.scroll - 1) });
-      if ((key.ctrl && key.name === "d") || key.name === "pagedown") return setView({ ...view, scroll: view.scroll + 10 });
+      if ((key.ctrl && key.name === "d") || key.name === "pagedown") return setView({ ...view, scroll: Math.min(dmax, view.scroll + 10) });
       if ((key.ctrl && key.name === "u") || key.name === "pageup") return setView({ ...view, scroll: Math.max(0, view.scroll - 10) });
       if (key.name === "g" || key.name === "home") return setView({ ...view, scroll: 0 });
       return;
@@ -795,11 +892,6 @@ export function App() {
     if (key.name === "q") return renderer.destroy();
     if (key.sequence === "?") return pushView({ kind: "help" });
     if (key.sequence === "/") return setSearchMode(true);
-    if (key.sequence === ":") {
-      setCmd("");
-      setCmdSel(0);
-      return setCmdMode(true);
-    }
     if (key.name === "r") return setTick((t) => t + 1);
     if (key.name === "a") {
       setAllNs((v) => !v);

@@ -9,9 +9,9 @@ function Hints({ hints }: { hints: Hint[] }) {
     <box flexDirection="row" paddingX={1} backgroundColor={C.surface}>
       {hints.map(([k, label], i) => (
         <box key={i} flexDirection="row">
-          {i > 0 && <text fg={C.border}>{"  "}</text>}
-          <text fg={C.accentLight}>{k}</text>
-          <text fg={C.textDim}>{` ${label}`}</text>
+          {i > 0 && <text fg={C.border} selectable={false}>{"  "}</text>}
+          <text fg={C.accentLight} selectable={false}>{k}</text>
+          <text fg={C.textDim} selectable={false}>{` ${label}`}</text>
         </box>
       ))}
     </box>
@@ -36,20 +36,28 @@ export function Footer({
   kindId: string;
 }) {
   // The `/` filter and `:` command palette render their own floating bars, so
-  // the footer just shows an error (if any) or contextual key hints.
+  // the footer just shows a transient status (error or info) or, otherwise,
+  // contextual key hints.
   if (status?.kind === "error") {
     return (
       <box paddingX={1} backgroundColor={C.surface}>
-        <text fg={C.danger}>{`✗ ${status.text}`}</text>
+        <text fg={C.danger} selectable={false}>{`✗ ${status.text}`}</text>
+      </box>
+    );
+  }
+  if (status?.kind === "info") {
+    return (
+      <box paddingX={1} backgroundColor={C.surface}>
+        <text fg={C.ok} selectable={false}>{`✓ ${status.text}`}</text>
       </box>
     );
   }
 
   let hints: Hint[];
   if (view.kind === "logs")
-    hints = [["k/j", "scroll"], ["w", "wrap"], ["G", "live-tail"], ["esc", "back"], ["^c", "quit"]];
+    hints = [["k/j", "scroll"], ["w", "wrap"], ["c", "copy"], ["G", "live-tail"], ["esc", "back"], ["^c", "quit"]];
   else if (view.kind === "describe")
-    hints = [["j/k", "scroll"], ["g", "top"], ["esc", "back"]];
+    hints = [["j/k", "scroll"], ["g", "top"], ["c", "copy"], ["esc", "back"]];
   else if (view.kind === "containers")
     hints = [["j/k", "move"], ["enter", "follow-logs"], ["esc", "back"]];
   else if (view.kind === "podpick")
