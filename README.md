@@ -2,8 +2,6 @@
   <img src="docs/logo.svg" alt="kate" width="380">
 </p>
 
-# kate
-
 A [k9s](https://k9scli.io/)-inspired Kubernetes TUI, built on [OpenTUI](https://github.com/anomalyco/opentui) (TypeScript + React, running on [Bun](https://bun.sh)).
 
 kate is a fast, read-only terminal browser for your clusters. It talks to the Kubernetes API directly via `@kubernetes/client-node` — no `kubectl` or `helm` shell-outs — and gives you live resource lists, log following, describe, and port-forwarding with vim-style navigation.
