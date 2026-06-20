@@ -62,16 +62,25 @@ export function TableView({
   const leftIdx = hasName ? cols.filter((i) => i <= nameIdx) : cols;
   const rightIdx = hasName ? cols.filter((i) => i > nameIdx) : [];
 
-  const rightW = rightIdx.reduce((s, i) => s + (nat[i] ?? 0) + 1, 0);
-  const leftOtherW = leftIdx
-    .filter((i) => i !== nameIdx)
-    .reduce((s, i) => s + (nat[i] ?? 0) + 1, 0);
-  const fixed = GUTTER + (showPF ? PF_W : 0) + leftOtherW + rightW + MIN_GAP + 1;
-
+  // Fit the row by lowering a uniform width ceiling until it fits the pane: the
+  // WIDEST columns come down first (and together), each clamped no lower than a
+  // floor (NAME → MIN_NAME, others → their header width). So in metric views
+  // NAME — usually the widest — gives before the small columns (STATUS, AGE, …
+  // stay intact), while in Contexts the oversized redundant columns (CLUSTER,
+  // AUTHINFO) give before NAME instead of NAME being starved to nothing.
   const colW = nat.slice();
   if (hasName) {
-    const avail = width - fixed;
-    colW[nameIdx] = Math.max(MIN_NAME, Math.min(nat[nameIdx] ?? MIN_NAME, Math.max(MIN_NAME, avail)));
+    const chrome = GUTTER + (showPF ? PF_W : 0) + MIN_GAP + 1;
+    const floorOf = (i: number) =>
+      i === nameIdx
+        ? Math.min(nat[i] ?? MIN_NAME, MIN_NAME)
+        : Math.min(nat[i] ?? 1, table.headers[i]?.length ?? 1);
+    const widthFor = (cap: number) =>
+      chrome + nat.reduce((s, w, i) => s + Math.max(floorOf(i), Math.min(w, cap)) + 1, 0);
+
+    let cap = Math.max(MIN_NAME, ...nat);
+    while (cap > 1 && widthFor(cap) > width) cap--;
+    for (let i = 0; i < colW.length; i++) colW[i] = Math.max(floorOf(i), Math.min(nat[i] ?? 0, cap));
   }
 
   const headerCell = (i: number) => (

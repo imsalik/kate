@@ -25,8 +25,7 @@ export interface Command {
   name: string; // canonical id App switches on
   aliases: string[]; // extra strings that match this command
   title: string; // what shows in the palette
-  hint: string; // one-line description (the compact right column)
-  detail?: string; // fuller description for the selected-item line (untruncated)
+  hint: string; // one-line description (the right column)
   arg?: ArgKind;
   crd?: boolean; // a discovered custom resource — the palette tags these
 }
@@ -85,10 +84,6 @@ function buildCommands(): Command[] {
     // distinguishes CRDs by their API group (cert-manager.io, …). The old
     // "· view <Title>" was redundant with the label and forced line wraps.
     hint: k.group,
-    // Full description for the selected-item line — the Kind (untruncated,
-    // original case) plus its group. For CRDs this is the readable name the
-    // compact label can't fully show (e.g. "AccessContextManagerAccessLevel").
-    detail: `${k.title} · ${k.group}`,
     crd,
   });
   // Built-in kinds, except any whose id is already a richer verb (e.g.

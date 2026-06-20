@@ -41,12 +41,6 @@ export function CommandPalette({
   // Pad the list out to MAX rows so a short result set doesn't shrink the box.
   const blanks = Math.max(0, MAX - window.length);
 
-  // The selected item's full description, shown on its own line under the prompt
-  // where it has the whole width — so the Kind name the compact row truncates is
-  // still legible. Falls back to the hint for verbs (which have no detail).
-  const cur = candidates[sel];
-  const detailText = cur ? cur.command.detail ?? cur.hint : "";
-
   return (
     <box
       position="absolute"
@@ -69,13 +63,6 @@ export function CommandPalette({
         {!input && <text fg={C.textDim}>type a resource or verb…</text>}
       </box>
 
-      {/* selected item's full description — has the whole width, so the Kind
-          name isn't truncated like it is in the compact row */}
-      <box flexDirection="row" paddingX={1} backgroundColor={C.surface}>
-        {cur?.command.crd && <text fg={C.warn}>{"crd  "}</text>}
-        <text fg={C.accentLight}>{fit(detailText, innerW - 2 - (cur?.command.crd ? 5 : 0))}</text>
-      </box>
-
       <box height={1} />
 
       {/* candidate list — fixed MAX rows, each exactly one line */}
@@ -90,7 +77,7 @@ export function CommandPalette({
               {on ? <b>{fit(c.label, labelW)}</b> : fit(c.label, labelW)}
             </text>
             <text fg={C.warn}>{c.command.crd ? " crd " : "     "}</text>
-            <text fg={C.textDim}>{fit(c.hint, hintW)}</text>
+            <text fg={on ? C.text : C.textDim}>{fit(c.hint, hintW)}</text>
           </box>
         );
       })}
