@@ -5,6 +5,7 @@ import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToP
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
+import { parseFilter, matchesCols, completeColumn, columnMatches } from "./lib/filter";
 import { copyToClipboard as clipboardCopy } from "./lib/clipboard";
 import { saveConfig, rememberNamespace, loadConfig, togglePinnedCrd } from "./config";
 
@@ -274,13 +275,21 @@ export function App() {
   );
 
   // ----- derived rows (filter) -------------------------------------------
+  // `col:value` tokens (e.g. `ingest:true`) constrain a column; the rest is
+  // fuzzy-matched against the whole row. Pure column filters keep the table's
+  // natural order; free text re-ranks by fuzzy score, as before.
   const rows = useMemo(() => {
     if (!query) return table.rows;
-    return table.rows
-      .map((r) => ({ r, score: fuzzyScore(query, r.cells.join(" ")) }))
-      .filter((x): x is { r: (typeof table.rows)[number]; score: number } => x.score !== null)
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.r);
+    const { cols, text } = parseFilter(query, table.headers);
+    const scored: { r: (typeof table.rows)[number]; score: number }[] = [];
+    for (const r of table.rows) {
+      if (!matchesCols(r.cells, cols)) continue;
+      const score = text ? fuzzyScore(text, r.cells.join(" ")) : 0;
+      if (score === null) continue;
+      scored.push({ r, score });
+    }
+    if (text) scored.sort((a, b) => b.score - a.score);
+    return scored.map((x) => x.r);
   }, [table, query]);
 
   useEffect(() => {
@@ -798,6 +807,10 @@ export function App() {
         setSearchMode(false);
       } else if (key.name === "return" || key.name === "enter") {
         setSearchMode(false);
+      } else if (key.name === "tab") {
+        // Complete the current token to a column name (→ `col:`), so `col:value`
+        // filters are discoverable instead of memorized.
+        setQuery((q) => completeColumn(q, table.headers));
       } else if (key.name === "backspace") {
         setQuery((q) => q.slice(0, -1));
       } else if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
@@ -1116,6 +1129,10 @@ export function App() {
                     ? `${kind?.title ?? kindId}  ‹ ${namespace}`
                     : kind?.title ?? kindId;
 
+  // Surface an active filter inline with the pane title (e.g. `Owner  ⌕ ing…`),
+  // so a kept filter is visible after the floating bar closes.
+  const paneTitleFull = view.kind === "list" && query ? `${paneTitle}  ⌕ ${query}` : paneTitle;
+
   return (
     <box flexDirection="column" width={dims.width} height={dims.height} backgroundColor={C.bg}>
       {/* Header */}
@@ -1149,7 +1166,7 @@ export function App() {
           borderStyle="rounded"
           border
           borderColor={!inList ? C.accent : focus === "table" ? C.accent : C.border}
-          title={` ${paneTitle} `}
+          title={` ${paneTitleFull} `}
           titleAlignment="left"
           onMouseScroll={(e) => e.scroll && onPaneScroll(e.scroll.direction)}
         >
@@ -1183,7 +1200,15 @@ export function App() {
 
       {/* Command palette / filter — float just below the header */}
       {cmdMode && <CommandPalette input={cmd} candidates={cmdCandidates} sel={cmdSel} dims={dims} top={HEADER_H} />}
-      {searchMode && <FilterBar query={query} count={rows.length} dims={dims} top={HEADER_H} />}
+      {searchMode && (
+        <FilterBar
+          query={query}
+          count={rows.length}
+          dims={dims}
+          top={HEADER_H}
+          suggestions={columnMatches(query, table.headers)}
+        />
+      )}
       {view.kind === "logs" && view.searchInput && (
         <LogSearchBar
           term={view.search}

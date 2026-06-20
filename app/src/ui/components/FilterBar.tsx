@@ -9,11 +9,14 @@ export function FilterBar({
   count,
   dims,
   top,
+  suggestions,
 }: {
   query: string;
   count: number;
   dims: { width: number; height: number };
   top: number;
+  // Column names the current token can Tab-complete to; shown as a hint row.
+  suggestions: string[];
 }) {
   const W = Math.min(72, Math.max(48, dims.width - 8));
   const left = Math.max(0, Math.floor((dims.width - W) / 2));
@@ -40,7 +43,20 @@ export function FilterBar({
         <text fg={C.textDim}>{`${count} match${count === 1 ? "" : "es"}`}</text>
       </box>
       <box paddingX={1} backgroundColor={C.surface}>
-        <text fg={C.textDim}>{"type to fuzzy-match   enter keep   esc clear"}</text>
+        {suggestions.length > 0 ? (
+          <box flexDirection="row">
+            <text fg={C.textDim}>{"⇥ "}</text>
+            {suggestions.map((s, i) => (
+              <text key={s} fg={C.accent}>
+                {i > 0 ? "  " : ""}
+                {s.toLowerCase()}
+              </text>
+            ))}
+            <text fg={C.textDim}>{"  → col:value"}</text>
+          </box>
+        ) : (
+          <text fg={C.textDim}>{"fuzzy or col:value   ⇥ complete   enter keep   esc clear"}</text>
+        )}
       </box>
     </box>
   );
