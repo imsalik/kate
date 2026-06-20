@@ -1,21 +1,23 @@
 import { C } from "../theme";
 
-// The logs `/` search entry — a floating bar below the header, matching the
-// command palette and row filter so the three read as one family. Highlights
-// matches live as you type; `count`/`pos` show how many hits there are and which
-// one n/N has landed on. Presentation only.
-export function LogSearchBar({
+// A floating `/`-search entry bar, shared by the logs and describe views (and
+// matching the command palette / row filter so they all read as one family).
+// `title` names the target ("search logs" / "search yaml"); `count`/`pos` show
+// how many hits there are and which one n/N has landed on. Presentation only.
+export function SearchBar({
   term,
   count,
   pos,
   dims,
   top,
+  title,
 }: {
   term: string;
   count: number;
   pos: number; // 0-based index of the active match, or -1 when none
   dims: { width: number; height: number };
   top: number;
+  title: string;
 }) {
   const W = Math.min(72, Math.max(48, dims.width - 8));
   const left = Math.max(0, Math.floor((dims.width - W) / 2));
@@ -31,7 +33,7 @@ export function LogSearchBar({
       border
       borderColor={C.accent}
       backgroundColor={C.bg}
-      title=" search logs "
+      title={` ${title} `}
       titleAlignment="center"
       flexDirection="column"
     >

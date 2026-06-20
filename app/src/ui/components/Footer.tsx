@@ -59,7 +59,7 @@ export function Footer({
   if (view.kind === "logs")
     hints = [["k/j", "scroll"], ["/", "search"], ["n/N", "next/prev"], ["w", "wrap"], ["c", "copy"], ["G", "live"], ["esc", "back"]];
   else if (view.kind === "describe")
-    hints = [["j/k", "scroll"], ["g", "top"], ["c", "copy"], ["esc", "back"]];
+    hints = [["j/k", "scroll"], ["/", "search"], ["n/N", "next/prev"], ["g/G", "top/bot"], ["c", "copy"], ["esc", "back"]];
   else if (view.kind === "containers")
     hints = [["j/k", "move"], ["enter", "follow-logs"], ["esc", "back"]];
   else if (view.kind === "podpick")

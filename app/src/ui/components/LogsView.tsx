@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { View } from "../../types";
 import { C } from "../theme";
-import { type Match, type Seg, highlightSegs, logLineSegs, truncSegs, wrapSegs } from "../highlight";
+import { type Match, type Seg, logLineSegs, makeHighlighter, truncSegs, wrapSegs } from "../highlight";
 
 export function LogsView({
   view,
@@ -19,30 +19,10 @@ export function LogsView({
   const clampedOffset = Math.min(view.bottomOffset, Math.max(0, lines.length - viewH));
   const w = Math.max(1, width);
 
-  // Group match columns by line so a row's highlight is a quick lookup, and note
-  // the active (n/N-selected) match so it can be painted brighter than the rest.
-  const colsByLine = useMemo(() => {
-    const m = new Map<number, number[]>();
-    for (const mt of matches) {
-      const arr = m.get(mt.line);
-      if (arr) arr.push(mt.col);
-      else m.set(mt.line, [mt.col]);
-    }
-    return m;
-  }, [matches]);
-  const activeMatch = matches[view.matchIdx];
-  const matchStyle = { fg: C.bg, bg: C.warn };
-  const activeStyle = { fg: C.bg, bg: C.ok };
-
-  // Colored segments for a source line, with search matches painted on top.
-  const segsFor = (li: number): Seg[] => {
-    const base = logLineSegs(lines[li]!);
-    if (!view.search) return base;
-    const cols = colsByLine.get(li);
-    if (!cols) return base;
-    const activeCol = activeMatch && activeMatch.line === li ? activeMatch.col : -1;
-    return highlightSegs(base, cols, view.search.length, matchStyle, activeStyle, activeCol);
-  };
+  // Colored segments for a source line, with search matches painted on top
+  // (shared painter — see makeHighlighter).
+  const hl = useMemo(() => makeHighlighter(matches, view.search, view.matchIdx), [matches, view.search, view.matchIdx]);
+  const segsFor = (li: number): Seg[] => hl(logLineSegs(lines[li]!), li);
 
   // Build the visible display rows (each a colored segment list). When wrapping
   // is on a source line can span several rows, so we fill from the bottom up to

@@ -20,7 +20,9 @@ export type View =
   // pod picker shown when a workload (job/deployment/…) has several pods; Enter
   // drills into the chosen pod's logs. `subtitle` is the parent workload name.
   | { kind: "podpick"; namespace: string; pods: string[]; index: number; subtitle: string }
-  | { kind: "describe"; subtitle: string; text: string; scroll: number; loading: boolean }
+  // search/searchInput/matchIdx mirror the logs view: `/` opens the entry bar,
+  // typing highlights matches live, n/N walk them. "" search == off.
+  | { kind: "describe"; subtitle: string; text: string; scroll: number; loading: boolean; search: string; searchInput: boolean; matchIdx: number }
   // port-forward modal: pick a container::port, edit the local port, confirm.
   // field: 0=container port, 1=local port, 2=OK, 3=Cancel (arrow-key nav).
   | { kind: "portpick"; pod: { namespace: string; name: string }; entries: PortEntry[]; index: number; local: string; field: number }

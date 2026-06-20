@@ -202,6 +202,36 @@ export function findMatches(lines: string[], term: string): Match[] {
 // take the search style (fg/bg flipped for contrast) — the active one a brighter
 // bg. We walk char-by-char so a match that straddles a color boundary still
 // highlights cleanly; only ever runs on the handful of visible rows.
+// Build a per-line painter that lays match backgrounds over a line's base color
+// segments — the shared core of search highlighting in both the logs and
+// describe views. Matched runs flip fg/bg for contrast; the n/N-selected match
+// gets a brighter bg. Returns the base segs untouched when search is off or the
+// line has no match, so callers just wrap their syntax colorizer with it:
+//   const hl = makeHighlighter(matches, search, matchIdx);
+//   const segs = hl(yamlSegs(line), lineIndex);
+export function makeHighlighter(
+  matches: Match[],
+  search: string,
+  matchIdx: number,
+): (base: Seg[], line: number) => Seg[] {
+  const byLine = new Map<number, number[]>();
+  for (const mt of matches) {
+    const arr = byLine.get(mt.line);
+    if (arr) arr.push(mt.col);
+    else byLine.set(mt.line, [mt.col]);
+  }
+  const active = matches[matchIdx];
+  const matchStyle = { fg: C.bg, bg: C.warn };
+  const activeStyle = { fg: C.bg, bg: C.ok };
+  return (base, line) => {
+    if (!search) return base;
+    const cols = byLine.get(line);
+    if (!cols) return base;
+    const activeCol = active && active.line === line ? active.col : -1;
+    return highlightSegs(base, cols, search.length, matchStyle, activeStyle, activeCol);
+  };
+}
+
 export function highlightSegs(
   segs: Seg[],
   cols: number[],
