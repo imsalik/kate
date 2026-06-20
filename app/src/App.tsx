@@ -1,7 +1,7 @@
 import { useRenderer, useTerminalDimensions, useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Client, kindById, canDescribe, canPortForward, canViewLogs, setDynamicKinds, crdToKind } from "./k8s";
+import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, setDynamicKinds, crdToKind } from "./k8s";
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
@@ -486,8 +486,8 @@ export function App() {
     }
   }
 
-  function describeSelected() {
-    const r = rows[rowIndex];
+  function describeSelected(idx = rowIndex) {
+    const r = rows[idx];
     if (!r || !canDescribe(kindId)) return;
     // Cluster-scoped resources (e.g. namespaces) have no namespace to show.
     const target = r.namespace ? `${r.namespace}/${r.name}` : r.name;
@@ -639,7 +639,8 @@ export function App() {
   function activateRowAt(idx: number) {
     if (kindId === "contexts") switchToSelectedContext(idx);
     else if (kindId === "namespaces") switchToSelectedNamespace(idx);
-    else if (canViewLogs(kindId)) openLogsForSelected(idx);
+    else if (canDrillToPods(kindId)) openLogsForSelected(idx);
+    else if (canDescribe(kindId)) describeSelected(idx);
   }
 
   // Single click selects the row; a second click on the same row (within
@@ -1019,7 +1020,8 @@ export function App() {
     if (key.name === "return" || key.name === "enter" || key.name === "l") {
       if (kindId === "contexts") switchToSelectedContext();
       else if (kindId === "namespaces") switchToSelectedNamespace();
-      else if (canViewLogs(kindId)) openLogsForSelected();
+      else if (canDrillToPods(kindId)) openLogsForSelected();
+      else if (canDescribe(kindId)) describeSelected();
     }
   });
 

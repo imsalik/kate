@@ -8,6 +8,7 @@ export {
   canDescribe,
   canPortForward,
   canViewLogs,
+  canDrillToPods,
   allKinds,
   dynamicKinds,
   setDynamicKinds,

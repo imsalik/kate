@@ -27,6 +27,9 @@ export interface ContainerInfo {
   ready: boolean;
   state: string;
   restarts: number;
+  // Live usage from the metrics API; undefined when metrics-server is absent.
+  cpuMilli?: number;
+  memMi?: number;
 }
 
 export interface PortForwardEntry {

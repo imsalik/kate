@@ -92,3 +92,11 @@ const LOG_KINDS = new Set(["pods", "deployments", "statefulsets", "daemonsets", 
 export function canViewLogs(kindId: string): boolean {
   return LOG_KINDS.has(kindId);
 }
+
+// Kinds whose Enter drills into their backing pods: the log kinds above, plus
+// services (which resolve pods via their spec.selector). Everything else has no
+// pods to drill into, so Enter falls back to describe instead.
+const DRILL_KINDS = new Set([...LOG_KINDS, "services"]);
+export function canDrillToPods(kindId: string): boolean {
+  return DRILL_KINDS.has(kindId);
+}

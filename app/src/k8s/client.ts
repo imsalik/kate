@@ -177,6 +177,7 @@ export class Client {
   // with live status (ready/state/restarts).
   async podContainers(namespace: string, name: string): Promise<ContainerInfo[]> {
     const pod = await this.core.readNamespacedPod({ name, namespace });
+    const usage = await this.containerMetrics(namespace, name);
     const statuses = new Map((pod.status?.containerStatuses ?? []).map((s) => [s.name, s]));
     return (pod.spec?.containers ?? []).map((c) => {
       const st = statuses.get(c.name);
@@ -184,14 +185,39 @@ export class Client {
       if (st?.state?.running) state = "Running";
       else if (st?.state?.waiting?.reason) state = st.state.waiting.reason;
       else if (st?.state?.terminated?.reason) state = st.state.terminated.reason;
+      const u = usage.get(c.name);
       return {
         name: c.name,
         image: c.image ?? "",
         ready: st?.ready ?? false,
         state,
         restarts: st?.restartCount ?? 0,
+        cpuMilli: u?.cpuMilli,
+        memMi: u?.memMi,
       };
     });
+  }
+
+  // Per-container live CPU/MEM for a single pod, keyed by container name. Empty
+  // when metrics-server is absent so the container picker still renders.
+  private async containerMetrics(
+    namespace: string,
+    name: string,
+  ): Promise<Map<string, { cpuMilli: number; memMi: number }>> {
+    const map = new Map<string, { cpuMilli: number; memMi: number }>();
+    try {
+      const res = await this.metrics.getPodMetrics(namespace);
+      const pod = res.items?.find((i) => i.metadata?.name === name);
+      for (const cont of pod?.containers ?? []) {
+        map.set(cont.name, {
+          cpuMilli: parseCpu((cont as any).usage?.cpu) ?? 0,
+          memMi: parseMem((cont as any).usage?.memory) ?? 0,
+        });
+      }
+    } catch {
+      // metrics-server not installed / not reachable — leave the map empty.
+    }
+    return map;
   }
 
   // Describe: fetch the live object generically and render it as YAML.
@@ -274,6 +300,7 @@ export class Client {
       else if (kindId === "statefulsets") labels = (await this.apps.readNamespacedStatefulSet({ name, namespace })).spec?.selector?.matchLabels;
       else if (kindId === "daemonsets") labels = (await this.apps.readNamespacedDaemonSet({ name, namespace })).spec?.selector?.matchLabels;
       else if (kindId === "replicasets") labels = (await this.apps.readNamespacedReplicaSet({ name, namespace })).spec?.selector?.matchLabels;
+      else if (kindId === "services") labels = (await this.core.readNamespacedService({ name, namespace })).spec?.selector;
       else return [];
       if (!labels || Object.keys(labels).length === 0) return [];
       labelSelector = Object.entries(labels).map(([k, v]) => `${k}=${v}`).join(",");

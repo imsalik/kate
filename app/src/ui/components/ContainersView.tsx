@@ -11,14 +11,18 @@ export function ContainersView({
 }) {
   const viewH = Math.max(1, height - 1);
   const window = view.items.slice(0, viewH);
-  const headers = ["NAME", "READY", "STATE", "RESTARTS", "IMAGE"];
+  const headers = ["NAME", "READY", "STATE", "RESTARTS", "CPU", "MEM", "IMAGE"];
   const w = [
     Math.max(4, ...view.items.map((c) => c.name.length)),
     5,
     Math.max(5, ...view.items.map((c) => c.state.length)),
     8,
+    6,
+    8,
     60,
   ];
+  const cpu = (c: (typeof view.items)[number]) => (c.cpuMilli === undefined ? "-" : `${Math.round(c.cpuMilli)}m`);
+  const mem = (c: (typeof view.items)[number]) => (c.memMi === undefined ? "-" : `${Math.round(c.memMi)}Mi`);
   return (
     <box flexDirection="column">
       <text fg={C.textDim}>{`  pick a container · enter follow logs · esc back`}</text>
@@ -30,7 +34,7 @@ export function ContainersView({
       {window.map((c, i) => {
         const sel = i === view.index;
         const fg = sel ? C.bg : C.text;
-        const cells = [c.name, c.ready ? "✓" : "✗", c.state, String(c.restarts), c.image];
+        const cells = [c.name, c.ready ? "✓" : "✗", c.state, String(c.restarts), cpu(c), mem(c), c.image];
         return (
           <box key={i} flexDirection="row" paddingX={1} backgroundColor={sel ? C.accent : undefined}>
             {cells.map((cell, ci) => (

@@ -1,5 +1,5 @@
 import type { Status, View } from "../../types";
-import { canDescribe, canPortForward, canViewLogs } from "../../k8s";
+import { canDescribe, canPortForward } from "../../k8s";
 import { C } from "../theme";
 
 type Hint = [key: string, label: string];
@@ -72,9 +72,6 @@ export function Footer({
     hints = [["j/k", "theme (live)"], ["enter/esc", "done"]];
   else {
     hints = [["j/k", "move"], ["h/l", "panes"], [":", "cmd"], ["/", "filter"], ["a", "all-ns"], ["n", "ns"]];
-    if (canViewLogs(kindId)) hints.push(["enter", "logs"]);
-    else if (kindId === "contexts") hints.push(["enter", "switch-ctx"]);
-    else if (kindId === "namespaces") hints.push(["enter", "switch-ns"]);
     if (canDescribe(kindId)) hints.push(["d", "describe"]);
     if (canPortForward(kindId)) hints.push(["f", "port-fwd"]);
     hints.push(["⇧f", "forwards"], ["?", "help"], ["q", "quit"]);
