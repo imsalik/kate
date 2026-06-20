@@ -1,5 +1,5 @@
 import type { Status, View } from "../../types";
-import { canDescribe, canPortForward } from "../../k8s";
+import { canDescribe, canPortForward, isDynamicKind } from "../../k8s";
 import { C } from "../theme";
 
 type Hint = [key: string, label: string];
@@ -26,6 +26,7 @@ export function Footer({
   status,
   view,
   kindId,
+  pinned,
 }: {
   searchMode: boolean;
   cmdMode: boolean;
@@ -34,6 +35,7 @@ export function Footer({
   status: Status;
   view: View;
   kindId: string;
+  pinned: boolean;
 }) {
   // The `/` filter and `:` command palette render their own floating bars, so
   // the footer just shows a transient status (error or info) or, otherwise,
@@ -74,6 +76,7 @@ export function Footer({
     hints = [["j/k", "move"], ["h/l", "panes"], [":", "cmd"], ["/", "filter"], ["a", "all-ns"], ["n", "ns"]];
     if (canDescribe(kindId)) hints.push(["d", "describe"]);
     if (canPortForward(kindId)) hints.push(["f", "port-fwd"]);
+    if (isDynamicKind(kindId)) hints.push(["⌃p", pinned ? "unpin" : "pin"]);
     hints.push(["⇧f", "forwards"], ["?", "help"], ["q", "quit"]);
   }
 

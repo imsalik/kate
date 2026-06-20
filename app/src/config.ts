@@ -22,6 +22,11 @@ export interface KateConfig {
   // Namespace last selected per context name, so each cluster reopens where you
   // left it instead of snapping back to "default".
   namespaceByContext?: Record<string, string>;
+  // CRD kind-ids the user pinned to the sidebar. Stored globally; a pin only
+  // shows in clusters where that CRD actually exists (discovery decides), so a
+  // pin from one cluster silently no-ops in another instead of showing a dead
+  // row.
+  pinnedCrds?: string[];
 }
 
 function resolvePath(): string {
@@ -72,4 +77,13 @@ export function rememberNamespace(context: string, namespace: string): void {
   const cfg = loadConfig();
   const map = { ...(cfg.namespaceByContext ?? {}), [context]: namespace };
   saveConfig({ namespaceByContext: map });
+}
+
+// Pin/unpin a CRD kind-id in the sidebar, persisting the change. Returns the
+// updated list so the caller can sync its in-memory state.
+export function togglePinnedCrd(id: string): string[] {
+  const cur = loadConfig().pinnedCrds ?? [];
+  const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+  saveConfig({ pinnedCrds: next });
+  return next;
 }

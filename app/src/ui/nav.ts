@@ -14,7 +14,14 @@ export type SideEntry =
   | { type: "header"; label: string }
   | { type: "kind"; id: string; label: string };
 
-export function buildSidebar(kinds = KINDS): SideEntry[] {
+// `crds` are the CRD rows to surface in the sidebar: the user's pinned CRDs plus
+// the one currently being viewed (so you always know where you are). They land
+// in a "Custom" group at the bottom — the built-in spine above never changes, so
+// indices into it (POD_INDEX, etc.) stay valid.
+export function buildSidebar(
+  kinds = KINDS,
+  crds: { id: string; label: string }[] = [],
+): SideEntry[] {
   const out: SideEntry[] = [];
   let lastGroup = "";
   for (const k of kinds) {
@@ -23,6 +30,10 @@ export function buildSidebar(kinds = KINDS): SideEntry[] {
       lastGroup = k.group;
     }
     out.push({ type: "kind", id: k.id, label: k.title });
+  }
+  if (crds.length) {
+    out.push({ type: "header", label: "Custom" });
+    for (const c of crds) out.push({ type: "kind", id: c.id, label: c.label });
   }
   return out;
 }

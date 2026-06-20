@@ -1,12 +1,12 @@
 import { useRenderer, useTerminalDimensions, useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, setDynamicKinds, crdToKind } from "./k8s";
+import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, isDynamicKind, setDynamicKinds, crdToKind } from "./k8s";
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
 import { copyToClipboard as clipboardCopy } from "./lib/clipboard";
-import { saveConfig, rememberNamespace } from "./config";
+import { saveConfig, rememberNamespace, loadConfig, togglePinnedCrd } from "./config";
 
 import { C, applyTheme, THEME_NAMES, currentThemeName } from "./ui/theme";
 import { findMatches } from "./ui/highlight";
@@ -88,9 +88,35 @@ export function App() {
     return "pods";
   }, [stack]);
 
-  // The sidebar lists built-in kinds only (constant). CRDs are reached through
-  // the `:` palette, not the sidebar — see nav.ts.
-  const sidebar = useMemo(() => buildSidebar(), []);
+  // CRD kind-ids pinned to the sidebar (persisted). Seeded from config; toggled
+  // with ctrl+p on a CRD.
+  const [pins, setPins] = useState<string[]>(() => loadConfig().pinnedCrds ?? []);
+
+  // The sidebar lists built-in kinds, then a "Custom" group with the pinned CRDs
+  // that exist in this cluster plus the CRD currently being viewed (so you can
+  // always see where you are). Bulk CRDs still live behind the `:` palette — see
+  // nav.ts. Recomputes on pin/navigation change, and on each refresh tick so a
+  // config pin appears once background discovery has populated the registry.
+  const sidebar = useMemo(() => {
+    const rows: { id: string; label: string }[] = [];
+    const seen = new Set<string>();
+    const add = (id: string) => {
+      if (seen.has(id) || !isDynamicKind(id)) return;
+      const k = kindById(id);
+      if (k) { rows.push({ id, label: k.title }); seen.add(id); }
+    };
+    for (const id of pins) add(id);
+    add(kindId); // the current CRD, if not already pinned
+    return buildSidebar(undefined, rows);
+  }, [pins, kindId, tick]);
+
+  // Keep the sidebar cursor on the active kind. Matters for CRD rows: a `:owner`
+  // jump can't position the cursor until that row exists, which only happens on
+  // the re-render after kindId changes — this catches up then.
+  useEffect(() => {
+    const idx = kindIndex(sidebar, kindId);
+    if (idx >= 0) setSideIndex(idx);
+  }, [sidebar, kindId]);
 
   // Discover CRDs for the active context (k9s-style), in the background so first
   // paint never waits on it. Re-runs on context switch.
@@ -329,6 +355,19 @@ export function App() {
     if (idx >= 0) setSideIndex(idx);
     setRowIndex(0);
     setQuery("");
+  }
+
+  // Pin/unpin the current CRD to the sidebar (ctrl+p). Only CRDs pin — built-ins
+  // are always there; non-CRDs just get a nudge.
+  function togglePinCurrent() {
+    if (!isDynamicKind(kindId)) {
+      setStatus({ kind: "info", text: "only CRDs can be pinned" });
+      return;
+    }
+    const next = togglePinnedCrd(kindId);
+    setPins(next);
+    const title = kindById(kindId)?.title ?? kindId;
+    setStatus({ kind: "info", text: next.includes(kindId) ? `pinned ${title}` : `unpinned ${title}` });
   }
 
   // Switch namespace by name directly (`:ns <name>`), persisting the choice.
@@ -997,6 +1036,7 @@ export function App() {
     }
     if (key.name === "n") return openNamespaces();
     if (key.shift && key.name === "f") return openForwards();
+    if (key.ctrl && key.name === "p") return togglePinCurrent();
     if (key.name === "d") return describeSelected();
     if (key.name === "f") return portForwardSelected();
 
@@ -1166,6 +1206,7 @@ export function App() {
         status={status}
         view={view}
         kindId={kindId}
+        pinned={pins.includes(kindId)}
       />
     </box>
   );

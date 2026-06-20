@@ -47,6 +47,10 @@ export function allKinds(): Kind[] {
 function isDynamic(id: string): boolean {
   return DYNAMIC_KINDS.some((k) => k.id === id);
 }
+// Public: is this kind a discovered CRD (present in the current cluster)?
+export function isDynamicKind(id: string): boolean {
+  return isDynamic(id);
+}
 
 export function kindById(id: string): Kind | undefined {
   return KINDS.find((k) => k.id === id) ?? DYNAMIC_KINDS.find((k) => k.id === id);
