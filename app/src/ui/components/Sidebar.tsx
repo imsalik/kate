@@ -1,8 +1,9 @@
 import type { Focus } from "../../types";
 import { C } from "../theme";
-import { SIDEBAR } from "../nav";
+import type { SideEntry } from "../nav";
 
 export function Sidebar({
+  entries,
   sideIndex,
   focus,
   activeId,
@@ -10,6 +11,7 @@ export function Sidebar({
   onSelect,
   onScroll,
 }: {
+  entries: SideEntry[];
   sideIndex: number;
   focus: Focus;
   activeId: string;
@@ -29,7 +31,7 @@ export function Sidebar({
       titleAlignment="left"
       onMouseScroll={(e) => e.scroll && onScroll(e.scroll.direction)}
     >
-      {SIDEBAR.map((e, i) => {
+      {entries.map((e, i) => {
         if (e.type === "header") {
           return (
             <box key={i} paddingX={1} marginTop={i === 0 ? 0 : 1}>

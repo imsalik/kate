@@ -1,5 +1,11 @@
 // Sidebar model — flattens the kind registry into selectable rows + group
 // headers for the resource sidebar.
+//
+// The sidebar lists the *built-in* kinds only. Discovered CRDs are deliberately
+// kept out of it: a cluster can have 100+ CRDs (cilium, cert-manager, istio, …)
+// and flooding the sidebar with them is noise *and* overflows the pane. CRDs are
+// reached through the `:` palette instead (`:certificates`, shortNames, fuzzy
+// completion) — exactly how k9s does it. Discovery still powers list/describe.
 
 import { KINDS } from "../k8s";
 
@@ -8,10 +14,10 @@ export type SideEntry =
   | { type: "header"; label: string }
   | { type: "kind"; id: string; label: string };
 
-function buildSidebar(): SideEntry[] {
+export function buildSidebar(kinds = KINDS): SideEntry[] {
   const out: SideEntry[] = [];
   let lastGroup = "";
-  for (const k of KINDS) {
+  for (const k of kinds) {
     if (k.group !== lastGroup) {
       out.push({ type: "header", label: k.group });
       lastGroup = k.group;
@@ -21,5 +27,10 @@ function buildSidebar(): SideEntry[] {
   return out;
 }
 
-export const SIDEBAR = buildSidebar();
-export const POD_INDEX = SIDEBAR.findIndex((e) => e.type === "kind" && e.id === "pods");
+export function kindIndex(sidebar: SideEntry[], id: string): number {
+  return sidebar.findIndex((e) => e.type === "kind" && e.id === id);
+}
+
+// Built-in-only index for `pods`, used as the initial selection before any CRDs
+// are discovered. CRDs only ever append, so this stays valid afterwards.
+export const POD_INDEX = kindIndex(buildSidebar(KINDS), "pods");

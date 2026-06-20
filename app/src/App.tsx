@@ -1,7 +1,7 @@
 import { useRenderer, useTerminalDimensions, useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Client, kindById, canDescribe, canPortForward, canViewLogs } from "./k8s";
+import { Client, kindById, canDescribe, canPortForward, canViewLogs, setDynamicKinds, crdToKind } from "./k8s";
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
@@ -10,7 +10,7 @@ import { saveConfig, rememberNamespace } from "./config";
 
 import { C, applyTheme, THEME_NAMES, currentThemeName } from "./ui/theme";
 import { findMatches } from "./ui/highlight";
-import { SIDEBAR, POD_INDEX } from "./ui/nav";
+import { buildSidebar, kindIndex, POD_INDEX } from "./ui/nav";
 import { matchCommands, type Candidate } from "./commands";
 
 import { Sidebar } from "./ui/components/Sidebar";
@@ -87,6 +87,28 @@ export function App() {
     }
     return "pods";
   }, [stack]);
+
+  // The sidebar lists built-in kinds only (constant). CRDs are reached through
+  // the `:` palette, not the sidebar — see nav.ts.
+  const sidebar = useMemo(() => buildSidebar(), []);
+
+  // Discover CRDs for the active context (k9s-style), in the background so first
+  // paint never waits on it. Re-runs on context switch.
+  //
+  // This updates the kind registry *silently* — it deliberately does NOT trigger
+  // a React re-render. A re-render landing inside OpenTUI's terminal-init window
+  // (the first few hundred ms, while it negotiates terminal capabilities) can
+  // corrupt the native renderer. We don't need one anyway: the `:` palette reads
+  // the registry live each time it opens, so discovered CRDs appear the next
+  // time you open it. Best-effort: failures leave built-ins working.
+  useEffect(() => {
+    client
+      .discover()
+      .then((changed) => {
+        if (changed) setDynamicKinds(client.crds.map(crdToKind));
+      })
+      .catch(() => {});
+  }, [ctxName]);
 
   function pushView(v: View) {
     setStack((s) => [...s, v]);
@@ -289,10 +311,10 @@ export function App() {
     let i = sideIndex;
     do {
       i += dir;
-      if (i < 0 || i >= SIDEBAR.length) return; // edge, no wrap
-    } while (SIDEBAR[i]!.type !== "kind");
+      if (i < 0 || i >= sidebar.length) return; // edge, no wrap
+    } while (sidebar[i]!.type !== "kind");
     setSideIndex(i);
-    const e = SIDEBAR[i]!;
+    const e = sidebar[i]!;
     if (e.type === "kind") {
       gotoList(e.id); // fresh navigation — resets any drill-down
       setRowIndex(0);
@@ -303,7 +325,7 @@ export function App() {
   // Jump the list to a resource kind and sync the sidebar selection.
   function jumpToKind(id: string) {
     gotoList(id);
-    const idx = SIDEBAR.findIndex((e) => e.type === "kind" && e.id === id);
+    const idx = kindIndex(sidebar, id);
     if (idx >= 0) setSideIndex(idx);
     setRowIndex(0);
     setQuery("");
@@ -438,7 +460,7 @@ export function App() {
   // namespace should go afterwards: "back" to the resource we came from (the
   // `n` quick-switch) or "pods" (the contexts → namespaces → pods drill).
   function openNamespaces(next: "back" | "pods" = "back") {
-    const idx = SIDEBAR.findIndex((e) => e.type === "kind" && e.id === "namespaces");
+    const idx = kindIndex(sidebar, "namespaces");
     if (idx >= 0) setSideIndex(idx);
     setRowIndex(0);
     setQuery("");
@@ -1071,6 +1093,7 @@ export function App() {
       {/* Body: sidebar + main pane */}
       <box flexDirection="row" flexGrow={1} gap={1} paddingX={1}>
         <Sidebar
+          entries={sidebar}
           sideIndex={sideIndex}
           focus={focus}
           activeId={kindId}

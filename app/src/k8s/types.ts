@@ -57,4 +57,5 @@ export interface Kind {
   id: string; // stable id, also what `:cmd` matches
   title: string; // sidebar label
   group: string; // sidebar section header
+  aliases?: string[]; // extra `:cmd` matches (CRD shortNames/singular)
 }

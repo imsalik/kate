@@ -29,8 +29,27 @@ export const KINDS: Kind[] = [
   { id: "helm", title: "Helm Releases", group: "Helm" },
 ];
 
+// Dynamic kinds discovered at runtime (CRDs), appended after the built-ins.
+// Kept in a module-level store so kindById/allKinds resolve them everywhere; the
+// UI re-renders by bumping a version (see App) whenever this is replaced. CRDs
+// always append — never reorder — so built-in sidebar indices stay stable.
+let DYNAMIC_KINDS: Kind[] = [];
+export function setDynamicKinds(kinds: Kind[]): void {
+  DYNAMIC_KINDS = kinds;
+}
+export function dynamicKinds(): Kind[] {
+  return DYNAMIC_KINDS;
+}
+// Built-ins first, then discovered CRDs.
+export function allKinds(): Kind[] {
+  return DYNAMIC_KINDS.length ? [...KINDS, ...DYNAMIC_KINDS] : KINDS;
+}
+function isDynamic(id: string): boolean {
+  return DYNAMIC_KINDS.some((k) => k.id === id);
+}
+
 export function kindById(id: string): Kind | undefined {
-  return KINDS.find((k) => k.id === id);
+  return KINDS.find((k) => k.id === id) ?? DYNAMIC_KINDS.find((k) => k.id === id);
 }
 
 // apiVersion/kind per resource, for the generic read used by `describe`.
@@ -53,8 +72,10 @@ export const DESCRIBE_META: Record<string, { apiVersion: string; kind: string }>
   rolebindings: { apiVersion: "rbac.authorization.k8s.io/v1", kind: "RoleBinding" },
 };
 
+// Built-ins via the static table; CRDs are always describable (the read is
+// generic — apiVersion/kind come from discovery).
 export function canDescribe(kindId: string): boolean {
-  return kindId in DESCRIBE_META;
+  return kindId in DESCRIBE_META || isDynamic(kindId);
 }
 
 // Kinds whose ports can be forwarded: pods directly, plus workloads/services

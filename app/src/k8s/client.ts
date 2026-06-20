@@ -9,12 +9,15 @@ import * as net from "node:net";
 import { loadConfig } from "../config";
 import { DESCRIBE_META } from "./kinds";
 import { FETCHERS } from "./fetchers";
+import { crdsFromDiscovery, type CrdInfo } from "./discovery";
 import { parseCpu, parseMem } from "./quantities";
 import type {
+  CellColor,
   ContainerInfo,
   ContextInfo,
   PortEntry,
   PortForwardEntry,
+  Row,
   Table,
 } from "./types";
 
@@ -35,6 +38,11 @@ export class Client {
   rbac!: k8s.RbacAuthorizationV1Api;
   autoscaling!: k8s.AutoscalingV2Api;
   metrics!: k8s.Metrics;
+
+  // Discovered CRDs for the current context, and the context they were
+  // discovered for (so we re-discover on switch, but not on every navigation).
+  crds: CrdInfo[] = [];
+  private crdContext: string | null = null;
 
   // Active port-forwards: a local TCP server per entry, kept until stopped.
   private pfServers = new Map<string, net.Server>();
@@ -80,6 +88,32 @@ export class Client {
     this.rbac = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api);
     this.autoscaling = this.kc.makeApiClient(k8s.AutoscalingV2Api);
     this.metrics = new k8s.Metrics(this.kc);
+  }
+
+  // Discover the cluster's custom resources (k9s-style), once per context. Uses
+  // *aggregated discovery* — a single ~80 KB GET to /apis — so it stays cheap
+  // (the full CRD list would drag down every CRD's multi-MB OpenAPI schema). The
+  // result powers the `:` palette only; nothing is pre-fetched. Best-effort: on
+  // any failure it leaves `crds` empty and built-in kinds still work. Cached on
+  // `this.crds`; returns true if the set was (re)loaded, so the caller can
+  // refresh the UI.
+  async discover(force = false): Promise<boolean> {
+    if (!force && this.crdContext === this.context) return false;
+    this.crdContext = this.context;
+    try {
+      const doc = await this.rawGet(
+        "/apis",
+        "application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList",
+      );
+      this.crds = crdsFromDiscovery(doc);
+    } catch {
+      this.crds = []; // not reachable / unsupported — built-ins still render
+    }
+    return true;
+  }
+
+  crdById(id: string): CrdInfo | undefined {
+    return this.crds.find((c) => c.id === id);
   }
 
   // Live CPU/MEM usage from the metrics API, summed per pod across containers.
@@ -162,12 +196,17 @@ export class Client {
 
   // Describe: fetch the live object generically and render it as YAML.
   async describe(kindId: string, namespace: string, name: string): Promise<string> {
-    const meta = DESCRIBE_META[kindId];
+    // Built-ins from the static table; CRDs build their apiVersion/kind from
+    // discovery, so describe works for any discovered resource too.
+    const crd = this.crdById(kindId);
+    const meta = crd
+      ? { apiVersion: `${crd.apiGroup}/${crd.version}`, kind: crd.kind }
+      : DESCRIBE_META[kindId];
     if (!meta) throw new Error(`describe not supported for ${kindId}`);
     const obj: any = await this.objApi.read({
       apiVersion: meta.apiVersion,
       kind: meta.kind,
-      metadata: { name, namespace },
+      metadata: { name, namespace: namespace || undefined },
     });
     // Strip server-side bookkeeping that just adds noise — kubectl hides these
     // by default too. managedFields (who-set-which-field) is the big offender.
@@ -351,11 +390,83 @@ export class Client {
     );
   }
 
-  // Fetch dispatches to the right lister and shapes a Table. Errors bubble up
-  // so the UI can show them in the status line.
+  // Fetch dispatches to the right lister and shapes a Table. Built-in kinds use
+  // their typed fetcher; a discovered CRD goes through the generic server-side
+  // Table path. Errors bubble up so the UI can show them in the status line.
   async fetch(kindId: string): Promise<Table> {
     const f = FETCHERS[kindId];
-    if (!f) throw new Error(`unknown kind: ${kindId}`);
-    return f(this, this.ns());
+    if (f) return f(this, this.ns());
+    const crd = this.crdById(kindId);
+    if (crd) return this.fetchCrdTable(crd);
+    throw new Error(`unknown kind: ${kindId}`);
   }
+
+  // List a CRD via the API server's server-side Table rendering: we send
+  // `Accept: …as=Table` and the server returns the columns its
+  // additionalPrinterColumns define, already computed (Name, Age, booleans, …).
+  // That's exactly what kubectl/k9s show — no per-CRD column code on our side.
+  private async fetchCrdTable(crd: CrdInfo): Promise<Table> {
+    const all = crd.namespaced && this.allNamespaces;
+    const base = `/apis/${crd.apiGroup}/${crd.version}`;
+    const path =
+      crd.namespaced && !this.allNamespaces
+        ? `${base}/namespaces/${this.namespace}/${crd.plural}`
+        : `${base}/${crd.plural}`;
+
+    const table = await this.tableRequest(path);
+    // Hide columns the server marks low-priority (kubectl shows them only with
+    // -o wide), keeping the view as tidy as k9s's.
+    const colDefs: any[] = table.columnDefinitions ?? [];
+    const keep = colDefs.map((c) => (c.priority ?? 0) === 0);
+    const defs = colDefs.filter((c) => (c.priority ?? 0) === 0);
+
+    const headers = [
+      ...(all ? ["NAMESPACE"] : []),
+      ...defs.map((c) => String(c.name).toUpperCase()),
+    ];
+    const rows: Row[] = (table.rows ?? []).map((r: any) => {
+      const meta = r.object?.metadata ?? {};
+      const ns = meta.namespace ?? "";
+      const cells = (r.cells ?? []).filter((_: unknown, i: number) => keep[i]).map(cellText);
+      return {
+        name: meta.name ?? String(r.cells?.[0] ?? ""),
+        namespace: ns,
+        cells: all ? [ns, ...cells] : cells,
+        colors: all ? [undefined as CellColor, ...cells.map(() => undefined as CellColor)] : undefined,
+      };
+    });
+    return { headers, rows };
+  }
+
+  private tableRequest(path: string): Promise<any> {
+    return this.rawGet(path, "application/json;as=Table;v=v1;g=meta.k8s.io");
+  }
+
+  // A raw, authenticated GET with a caller-chosen Accept. Reuses kubeconfig
+  // auth/TLS exactly like the typed clients (token/exec/cert), so it works
+  // against private-CA clusters (GKE) the same way the rest of kate does. Used
+  // for server-side Table rendering and aggregated discovery.
+  private async rawGet(path: string, accept: string): Promise<any> {
+    const cluster = this.kc.getCurrentCluster();
+    if (!cluster) throw new Error("no current cluster");
+    const init = await this.kc.applyToFetchOptions({
+      method: "GET",
+      headers: { Accept: accept },
+    } as any);
+    const res = await fetch(cluster.server.replace(/\/$/, "") + path, init as any);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${body ? `: ${body.slice(0, 200)}` : ""}`);
+    }
+    return res.json();
+  }
+}
+
+// Server-side Table cells are mostly strings/numbers, but a few printer columns
+// (e.g. date columns) come through as objects/null — coerce to a display string.
+function cellText(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
 }
