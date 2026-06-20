@@ -370,7 +370,7 @@ export function App() {
   // are always there; non-CRDs just get a nudge.
   function togglePinCurrent() {
     if (!isDynamicKind(kindId)) {
-      setStatus({ kind: "info", text: "only CRDs can be pinned" });
+      setStatus({ kind: "info", text: "only custom resources can be pinned" });
       return;
     }
     const next = togglePinnedCrd(kindId);
