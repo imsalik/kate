@@ -14,15 +14,11 @@ export function ConfigView({ view }: { view: Extract<View, { kind: "config" }> }
       {THEME_NAMES.map((name, i) => {
         const on = i === view.index;
         const active = name === currentThemeName;
-        const fg = on ? C.bg : active ? C.accentLight : C.text;
+        const fg = on || active ? C.accentLight : C.text;
         return (
-          <box key={name} flexDirection="row" paddingX={1} backgroundColor={on ? C.accent : undefined}>
-            <text fg={fg}>{active ? "▸ " : "  "}{fit(name, 14)}</text>
-            {/* a little swatch row so the palette is visible at a glance */}
-            <text fg={on ? C.bg : C.accent}>{"██"}</text>
-            <text fg={on ? C.bg : C.ok}>{"██"}</text>
-            <text fg={on ? C.bg : C.warn}>{"██"}</text>
-            <text fg={on ? C.bg : C.danger}>{"██"}</text>
+          <box key={name} flexDirection="row" paddingX={1} backgroundColor={on ? C.highlight : undefined}>
+            <text fg={on ? C.accent : C.border} selectable={false}>{active ? "▸ " : "  "}</text>
+            <text fg={fg} selectable={false}>{fit(name, 14)}</text>
           </box>
         );
       })}
