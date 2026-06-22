@@ -2,7 +2,10 @@
 # kate — a k9s-inspired Kubernetes TUI built on OpenTUI.
 # Talks to the cluster directly via @kubernetes/client-node (no kubectl shell-out).
 set -euo pipefail
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../app" && pwd)"
+# Resolve symlinks so the standalone CLI install (ln -s bin/kate ~/.local/bin/kate)
+# finds the real app dir, not one relative to the symlink.
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+APP_DIR="$(cd "$(dirname "$SCRIPT_PATH")/../app" && pwd)"
 
 # Make sure bun is reachable inside non-login tmux popup shells (the kate.tmux
 # plugin launches us via `display-popup`, which doesn't source a login profile).
