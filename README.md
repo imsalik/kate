@@ -43,6 +43,31 @@ Then launch with the wrapper script (recommended):
 
 The wrapper handles TLS for private CAs (e.g. GKE) — see [TLS](#tls) below — and restarts cleanly. You can also run it directly with `cd app && bun run start`, but private-CA clusters may fail TLS verification that way.
 
+### tmux plugin
+
+```tmux
+set -g @plugin 'imsalik/kate'
+```
+
+`prefix + I` to install via TPM, then `prefix + k` opens the popup. Deps install themselves on first run.
+
+### standalone CLI
+
+Run `kate` from any shell by putting the wrapper on your `$PATH`. If you already have it via TPM, just symlink that copy:
+
+```bash
+ln -s ~/.tmux/plugins/kate/bin/kate ~/.local/bin/kate
+```
+
+Otherwise clone it somewhere and symlink `bin/kate`:
+
+```bash
+git clone https://github.com/imsalik/kate.git ~/.local/share/kate
+ln -s ~/.local/share/kate/bin/kate ~/.local/bin/kate
+```
+
+Make sure `~/.local/bin` is on your `$PATH` (most setups already have it). Then run `kate` from any terminal. To update later: `git -C ~/.tmux/plugins/kate pull` (or pull wherever you cloned it).
+
 ## Usage
 
 kate opens on your current context. Move with the arrow keys or `j`/`k`, switch panes with `tab`, and drill in with `enter`. Press `?` any time for the keybinding help, and `:` to open the command palette.
