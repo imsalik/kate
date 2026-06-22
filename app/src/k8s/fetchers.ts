@@ -73,8 +73,16 @@ export const FETCHERS: Record<string, Fetcher> = {
     return {
       headers: nsHeaders(all, "NAME", "READY", "STATUS", "RESTARTS", "CPU", "MEM", "%CPU", "%MEM", "AGE"),
       rows: items.map((p) => {
-        const css = p.status?.containerStatuses ?? [];
-        const total = p.spec?.containers?.length ?? 0;
+        // Native sidecars are initContainers with restartPolicy "Always"; they
+        // run for the pod's whole life and count toward READY (like k9s), unlike
+        // ordinary init containers. Merge their spec/status with regular ones.
+        const sidecars = (p.spec?.initContainers ?? []).filter((c) => c.restartPolicy === "Always");
+        const sidecarNames = new Set(sidecars.map((c) => c.name));
+        const css = [
+          ...(p.status?.containerStatuses ?? []),
+          ...(p.status?.initContainerStatuses ?? []).filter((s) => sidecarNames.has(s.name)),
+        ];
+        const total = (p.spec?.containers?.length ?? 0) + sidecars.length;
         const ready = css.filter((s) => s.ready).length;
         const restarts = css.reduce((n, s) => n + (s.restartCount ?? 0), 0);
         let status = p.status?.phase ?? "";
@@ -91,7 +99,7 @@ export const FETCHERS: Record<string, Fetcher> = {
         // Sum container limits and requests; usage % is taken against the limit
         // when set, otherwise the request (k9s shows "n/a" when neither exists).
         let cpuLim = 0, memLim = 0, cpuReq = 0, memReq = 0;
-        for (const cont of p.spec?.containers ?? []) {
+        for (const cont of [...(p.spec?.containers ?? []), ...sidecars]) {
           cpuLim += parseCpu(cont.resources?.limits?.cpu) ?? 0;
           memLim += parseMem(cont.resources?.limits?.memory) ?? 0;
           cpuReq += parseCpu(cont.resources?.requests?.cpu) ?? 0;

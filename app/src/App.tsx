@@ -383,8 +383,10 @@ export function App() {
   function applyNamespaceByName(ns: string) {
     setAllNs(false);
     setNamespace(ns);
-    setRowIndex(0);
     rememberNamespace(ctxName, ns);
+    // Collapse back to the current kind's list: any pod-scoped view on the stack
+    // (containers/logs/describe) belongs to the old namespace and is now stale.
+    jumpToKind(kindId);
     setStatus({ kind: "info", text: `namespace: ${ns}` });
   }
 
@@ -426,7 +428,7 @@ export function App() {
         return openConfig();
       case "all":
         setAllNs((v) => !v);
-        setRowIndex(0);
+        jumpToKind(kindId); // drop any stale pod-scoped view from the old scope
         return;
       case "help":
         return pushView({ kind: "help" });
@@ -527,7 +529,14 @@ export function App() {
     setRowIndex(0);
     setQuery("");
     if (nsReturn === "back") {
-      popView(); // back to the resource we were viewing, now in the new ns
+      // Drop the namespaces list AND any pod-scoped frames (containers/logs/
+      // describe) below it — those belong to the old namespace and are stale.
+      // Land on the nearest list, which is the resource we came from.
+      setStack((s) => {
+        let next = s.slice(0, -1);
+        while (next.length > 1 && next[next.length - 1]!.kind !== "list") next = next.slice(0, -1);
+        return next.length ? next : [{ kind: "list", kindId: "pods" }];
+      });
     } else {
       setSideIndex(POD_INDEX);
       pushView({ kind: "list", kindId: "pods" });

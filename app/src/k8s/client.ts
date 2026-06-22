@@ -178,8 +178,14 @@ export class Client {
   async podContainers(namespace: string, name: string): Promise<ContainerInfo[]> {
     const pod = await this.core.readNamespacedPod({ name, namespace });
     const usage = await this.containerMetrics(namespace, name);
-    const statuses = new Map((pod.status?.containerStatuses ?? []).map((s) => [s.name, s]));
-    return (pod.spec?.containers ?? []).map((c) => {
+    const statuses = new Map([
+      ...(pod.status?.containerStatuses ?? []),
+      ...(pod.status?.initContainerStatuses ?? []),
+    ].map((s) => [s.name, s] as const));
+    // Native sidecars (initContainers with restartPolicy "Always") run for the
+    // pod's whole life, so list them alongside regular containers (like k9s).
+    const sidecars = (pod.spec?.initContainers ?? []).filter((c) => c.restartPolicy === "Always");
+    return [...sidecars, ...(pod.spec?.containers ?? [])].map((c) => {
       const st = statuses.get(c.name);
       let state = "—";
       if (st?.state?.running) state = "Running";
