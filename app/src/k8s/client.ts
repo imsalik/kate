@@ -11,7 +11,7 @@ import { loadConfig } from "../config";
 import { DESCRIBE_META } from "./kinds";
 import { FETCHERS } from "./fetchers";
 import { crdsFromDiscovery, type CrdInfo } from "./discovery";
-import { parseCpu, parseMem } from "./quantities";
+import { age, parseCpu, parseMem } from "./quantities";
 import type {
   CellColor,
   ContainerInfo,
@@ -272,7 +272,37 @@ export class Client {
         if (Object.keys(obj.metadata.annotations).length === 0) delete obj.metadata.annotations;
       }
     }
-    return k8s.dumpYaml(obj);
+    const yaml = k8s.dumpYaml(obj);
+    const events = await this.objectEvents(meta.kind, namespace, name);
+    return events ? `${yaml}\n# Events\n${events}` : yaml;
+  }
+
+  // Recent events for a single object, formatted as text to append to its
+  // describe output (kubectl-style). Best-effort: cluster-scoped objects (no
+  // namespace) and any fetch error just yield no section. Field-selecting on the
+  // involved object's name+kind keeps it to this object's events only.
+  private async objectEvents(kind: string, namespace: string, name: string): Promise<string> {
+    if (!namespace || !kind) return "";
+    try {
+      const { items } = await this.core.listNamespacedEvent({
+        namespace,
+        fieldSelector: `involvedObject.name=${name},involvedObject.kind=${kind}`,
+      });
+      if (!items.length) return "No events.";
+      const epoch = (e: any) =>
+        new Date(e.lastTimestamp ?? e.eventTime ?? e.metadata?.creationTimestamp ?? 0).getTime();
+      return items
+        .sort((a: any, b: any) => epoch(a) - epoch(b)) // chronological, like kubectl describe
+        .map((e: any) => {
+          const last = age(e.lastTimestamp ?? e.eventTime ?? e.metadata?.creationTimestamp);
+          const count = (e.count ?? 1) > 1 ? ` (x${e.count})` : "";
+          const msg = (e.message ?? "").replace(/\s+/g, " ").trim();
+          return `${last}  ${e.type}  ${e.reason}${count}  ${msg}`;
+        })
+        .join("\n");
+    } catch {
+      return "";
+    }
   }
 
   // Delete a resource by kind/name. objApi handles any built-in kind, looking

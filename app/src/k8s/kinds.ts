@@ -7,6 +7,7 @@ import type { Kind } from "./types";
 export const KINDS: Kind[] = [
   { id: "contexts", title: "Contexts", group: "Cluster" },
   { id: "namespaces", title: "Namespaces", group: "Cluster" },
+  { id: "events", title: "Events", group: "Cluster" },
 
   { id: "pods", title: "Pods", group: "Workloads" },
   { id: "deployments", title: "Deployments", group: "Workloads" },

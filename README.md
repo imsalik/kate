@@ -10,7 +10,7 @@ kate is a fast, read-only terminal browser for your clusters. It talks to the Ku
 
 ## Features
 
-- **Resource browser** — Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, HPA, ServiceAccounts, Roles, RoleBindings, and Helm releases.
+- **Resource browser** — Pods, Deployments, ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs, Services, Ingresses, ConfigMaps, Secrets, HPA, ServiceAccounts, Roles, RoleBindings, Helm releases, and cluster Events.
 - **Live CPU / MEM** for pods via the metrics API, including `%CPU` / `%MEM` against limits/requests, color-coded by usage.
 - **Live log following** — picks the container for multi-container pods, with JSON syntax highlighting, log-level coloring, and a line-wrap toggle.
 - **Drill into logs** — press `enter` on a pod, or on a Job/Deployment/StatefulSet/DaemonSet/ReplicaSet to tail its pods (a picker appears when there's more than one).

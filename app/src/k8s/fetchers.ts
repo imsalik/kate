@@ -64,6 +64,37 @@ export const FETCHERS: Record<string, Fetcher> = {
     };
   },
 
+  // Core v1 events, newest first. Most-recent-seen time comes from
+  // lastTimestamp, falling back to eventTime/creationTimestamp (newer events use
+  // eventTime). Warning events get a colored TYPE cell so they stand out.
+  events: async (c, ns) => {
+    const { items } = await (ns
+      ? c.core.listNamespacedEvent({ namespace: ns })
+      : c.core.listEventForAllNamespaces());
+    const all = c.allNamespaces;
+    const seen = (e: any) =>
+      new Date(e.lastTimestamp ?? e.eventTime ?? e.metadata?.creationTimestamp ?? 0).getTime();
+    const sorted = (items as any[]).slice().sort((a, b) => seen(b) - seen(a));
+    return {
+      headers: nsHeaders(all, "LAST", "TYPE", "REASON", "OBJECT", "COUNT", "MESSAGE"),
+      rows: sorted.map((e) => {
+        const typeColor: CellColor = e.type === "Warning" ? "warn" : undefined;
+        return {
+          name: e.metadata?.name ?? "",
+          namespace: e.metadata?.namespace ?? "",
+          cells: nsCells(all, e.metadata?.namespace ?? "",
+            age(e.lastTimestamp ?? e.eventTime ?? e.metadata?.creationTimestamp),
+            e.type ?? "",
+            e.reason ?? "",
+            `${e.involvedObject?.kind ?? ""}/${e.involvedObject?.name ?? ""}`,
+            String(e.count ?? 1),
+            (e.message ?? "").replace(/\s+/g, " ").trim()),
+          colors: nsColors(all, undefined, typeColor, undefined, undefined, undefined, undefined),
+        };
+      }),
+    };
+  },
+
   pods: async (c, ns) => {
     const [{ items }, metrics] = await Promise.all([
       ns ? c.core.listNamespacedPod({ namespace: ns }) : c.core.listPodForAllNamespaces(),
