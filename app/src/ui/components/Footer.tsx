@@ -1,5 +1,5 @@
 import type { Status, View } from "../../types";
-import { canDescribe, canPortForward, isDynamicKind } from "../../k8s";
+import { canDescribe, canPortForward, canDelete, isDynamicKind } from "../../k8s";
 import { C } from "../theme";
 
 type Hint = [key: string, label: string];
@@ -27,6 +27,7 @@ export function Footer({
   view,
   kindId,
   pinned,
+  editEnabled,
 }: {
   searchMode: boolean;
   cmdMode: boolean;
@@ -36,6 +37,7 @@ export function Footer({
   view: View;
   kindId: string;
   pinned: boolean;
+  editEnabled: boolean;
 }) {
   // The `/` filter and `:` command palette render their own floating bars, so
   // the footer just shows a transient status (error or info) or, otherwise,
@@ -68,13 +70,18 @@ export function Footer({
     hints = [["↑/↓", "field"], ["←/→", "change"], ["digits", "local port"], ["enter", "start"], ["esc", "cancel"]];
   else if (view.kind === "forwards")
     hints = [["j/k", "move"], ["d", "stop"], ["esc", "back"]];
+  else if (view.kind === "confirm")
+    hints = [["y/enter", "confirm"], ["h/l", "switch"], ["n/esc", "cancel"]];
   else if (view.kind === "help")
     hints = [["esc", "back"]];
   else if (view.kind === "config")
-    hints = [["j/k", "theme (live)"], ["enter/esc", "done"]];
+    hints = view.themeOpen
+      ? [["j/k", "preview"], ["enter", "select"], ["esc", "cancel"]]
+      : [["j/k", "move"], ["space/enter", "toggle/open"], ["esc", "done"]];
   else {
     hints = [["j/k", "move"], ["h/l", "panes"], [":", "cmd"], ["/", "filter"], ["a", "all-ns"], ["n", "ns"]];
     if (canDescribe(kindId)) hints.push(["d", "describe"]);
+    if (editEnabled && canDelete(kindId)) hints.push(["⇧d", "delete"]);
     if (canPortForward(kindId)) hints.push(["f", "port-fwd"]);
     if (isDynamicKind(kindId)) hints.push(["⌃p", pinned ? "unpin" : "pin"]);
     hints.push(["⇧f", "forwards"], ["?", "help"], ["q", "quit"]);

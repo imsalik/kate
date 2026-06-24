@@ -21,6 +21,7 @@ export function HelpView() {
     ["Act", [
       ["enter / l", "pods: container→logs · contexts: switch · else focus"],
       ["d", "describe (YAML) the selected resource"],
+      ["shift-d", "delete the selected pod (restarts it · confirm first)"],
       ["f", "port-forward a pod (pick a port if several)"],
       ["shift-f", "list / stop active port-forwards (also :pf)"],
       ["w", "toggle line wrap (in the logs view)"],
@@ -29,7 +30,7 @@ export function HelpView() {
       ["n / N", "jump to next / previous log match"],
       ["a", "toggle all-namespaces"],
       ["n", "open Namespaces (enter on one switches to it)"],
-      ["r", "refresh now (auto every 5s)"],
+      ["r", "refresh now (auto every 2s)"],
     ]],
     ["Leave", [
       ["esc", "back one step (logs → containers → list)"],

@@ -17,6 +17,10 @@ export interface KateConfig {
   // The remembered theme name (themes registry key). In-app theme changes
   // write here so the choice sticks across launches.
   theme?: string;
+  // Opt-in switch for mutating actions (currently: delete pod/service), each
+  // still gated behind a confirm dialog. Off by default — kate is read-mostly
+  // until you turn this on in Settings. Persisted here like the theme.
+  editEnabled?: boolean;
   // The context kate was last using — restored on startup when it still exists.
   lastContext?: string;
   // Namespace last selected per context name, so each cluster reopens where you

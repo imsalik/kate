@@ -14,8 +14,11 @@ export type View =
   // "pods" drills into pods (the contexts → namespaces → pods flow).
   | { kind: "list"; kindId: string; nsReturn?: "back" | "pods" }
   | { kind: "help" }
-  // Settings. `index` walks the theme list; moving previews the theme live.
-  | { kind: "config"; index: number }
+  // Settings. `index` walks the settings rows (0 = edit-mode toggle, 1 = theme)
+  // — moving between rows changes nothing. The theme is a dropdown: `themeOpen`
+  // expands it, `themeSel` is the highlighted theme (live-previewed while open),
+  // and `themePrev` is the theme to revert to if you cancel with Esc.
+  | { kind: "config"; index: number; themeOpen: boolean; themeSel: number; themePrev: string }
   | { kind: "containers"; pod: { namespace: string; name: string }; items: ContainerInfo[]; index: number }
   // pod picker shown when a workload (job/deployment/…) has several pods; Enter
   // drills into the chosen pod's logs. `subtitle` is the parent workload name.
@@ -27,6 +30,10 @@ export type View =
   // field: 0=container port, 1=local port, 2=OK, 3=Cancel (arrow-key nav).
   | { kind: "portpick"; pod: { namespace: string; name: string }; entries: PortEntry[]; index: number; local: string; field: number }
   | { kind: "forwards"; index: number; nonce: number }
+  // Confirmation modal for a destructive action (currently: delete a pod).
+  // `verb`/`target` are display strings; kindId/namespace/name identify what to
+  // act on; `confirm` is which button is highlighted (false = Cancel default).
+  | { kind: "confirm"; verb: string; target: string; kindId: string; namespace: string; name: string; confirm: boolean }
   // bottomOffset: lines scrolled up from the live tail; 0 == pinned to bottom.
   // wrap: soft-wrap long lines instead of truncating (toggled with `w`).
   // search: the active highlight term ("" == off); searchInput: the `/` entry

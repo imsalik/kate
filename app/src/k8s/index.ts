@@ -9,6 +9,7 @@ export {
   canPortForward,
   canViewLogs,
   canDrillToPods,
+  canDelete,
   isDynamicKind,
   allKinds,
   dynamicKinds,

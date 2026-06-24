@@ -104,3 +104,11 @@ const DRILL_KINDS = new Set([...LOG_KINDS, "services"]);
 export function canDrillToPods(kindId: string): boolean {
   return DRILL_KINDS.has(kindId);
 }
+
+// Kinds the UI lets you delete (behind a confirm dialog, and only when edit
+// mode is enabled in Settings). Deleting a pod restarts it (its controller
+// recreates it); deleting a service is NOT self-healing, so edit mode gates it.
+const DELETE_KINDS = new Set(["pods", "services"]);
+export function canDelete(kindId: string): boolean {
+  return DELETE_KINDS.has(kindId);
+}

@@ -16,12 +16,13 @@ kate is a fast, read-only terminal browser for your clusters. It talks to the Ku
 - **Drill into logs** — press `enter` on a pod, or on a Job/Deployment/StatefulSet/DaemonSet/ReplicaSet to tail its pods (a picker appears when there's more than one).
 - **Describe** — view any object as YAML, with server-side noise (`managedFields`, etc.) stripped.
 - **Port-forward** — a dialog to pick `container::port` and a local port; forwarded pods are marked in the list, and you can review or stop all active forwards in one place.
+- **Delete** (`shift-d`) — pods and services, behind a confirm dialog. Deleting a pod restarts it (its controller recreates it) to pick up new config. Mutating actions are **off by default**: flip *Edit mode* in Settings (`:config`) to enable them — the choice persists.
 - **Context & namespace switching** in-app, with fuzzy search. kate remembers your last context and the namespace you used in each context, so it reopens where you left off.
 - **Command palette** (`:`) with live fuzzy completion — jump to any resource, switch context/namespace, change theme, and more.
 - **Fuzzy filter** (`/`) on every list.
 - **Themes** — mustard (default), dracula, gruvbox, catppuccin, nord, mono — switchable live and remembered.
 
-kate is **read-only**: it browses and streams, it doesn't mutate cluster state.
+kate is **read-mostly**: it browses and streams. The only cluster mutations it performs are deleting a pod or service — both off by default (opt in via *Edit mode* in Settings) and always behind a confirm dialog.
 
 ## Requirements
 
@@ -83,6 +84,7 @@ kate opens on your current context. Move with the arrow keys or `j`/`k`, switch 
 | `h` / `l`, `←` / `→` | focus sidebar / table |
 | `enter` / `l` | pods & workloads → logs · contexts → switch · else focus table |
 | `d` | describe (YAML) |
+| `shift-d` | delete the selected pod / service (Edit mode + confirm) |
 | `f` | port-forward (pick a port if several) |
 | `shift-f` | list / stop active port-forwards |
 | `w` | toggle line wrap (in logs) |

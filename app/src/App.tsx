@@ -1,7 +1,7 @@
 import { useRenderer, useTerminalDimensions, useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, isDynamicKind, setDynamicKinds, crdToKind } from "./k8s";
+import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, canDelete, isDynamicKind, setDynamicKinds, crdToKind } from "./k8s";
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
 import { fuzzyScore } from "./lib/fuzzy";
@@ -27,12 +27,16 @@ import { DescribeView } from "./ui/components/DescribeView";
 import { ContainersView } from "./ui/components/ContainersView";
 import { ForwardsView } from "./ui/components/ForwardsView";
 import { PortForwardModal } from "./ui/components/PortForwardModal";
+import { ConfirmModal } from "./ui/components/ConfirmModal";
 import { HelpView } from "./ui/components/HelpView";
 import { Footer } from "./ui/components/Footer";
 
 // How often the active view silently re-fetches, in ms. Paused while a
 // non-table view is open or while typing, so we don't yank the user's context.
-const REFRESH_MS = 5000;
+// 2s matches k9s's default cadence; the table-signature diff (see below) makes
+// a poll that returns identical data a no-op, so a tight interval stays cheap
+// and flicker-free.
+const REFRESH_MS = 2000;
 
 export function App() {
   const renderer = useRenderer();
@@ -92,6 +96,10 @@ export function App() {
   // CRD kind-ids pinned to the sidebar (persisted). Seeded from config; toggled
   // with ctrl+p on a CRD.
   const [pins, setPins] = useState<string[]>(() => loadConfig().pinnedCrds ?? []);
+
+  // Whether mutating actions (delete) are enabled. Opt-in, persisted; toggled in
+  // Settings. Off by default so kate stays read-mostly until you flip it.
+  const [editEnabled, setEditEnabled] = useState<boolean>(() => loadConfig().editEnabled ?? false);
 
   // The sidebar lists built-in kinds, then a "Custom" group with the pinned CRDs
   // that exist in this cluster plus the CRD currently being viewed (so you can
@@ -559,6 +567,35 @@ export function App() {
       );
   }
 
+  // Open a confirm dialog for deleting the selected row. Pods only for now
+  // (canDelete) — deleting a pod is how you restart it to pick up new config;
+  // its controller recreates it. Cancel is the dialog's safe default.
+  function confirmDeleteSelected(idx = rowIndex) {
+    const r = rows[idx];
+    if (!r || !canDelete(kindId)) return;
+    if (!editEnabled) {
+      setStatus({ kind: "info", text: "edit mode is off — enable it in Settings (:config)" });
+      return;
+    }
+    const singular = kindId.replace(/s$/, "");
+    pushView({ kind: "confirm", verb: "Delete", target: `${singular} "${r.name}"`, kindId, namespace: r.namespace, name: r.name, confirm: false });
+  }
+
+  // Run the action the confirm dialog was opened for, then refresh immediately
+  // so the change shows without waiting for the next poll.
+  function runConfirm() {
+    if (view.kind !== "confirm") return;
+    const { kindId: k, namespace, name } = view;
+    popView();
+    client
+      .delete(k, namespace, name)
+      .then(() => {
+        setStatus({ kind: "info", text: `deleting ${name}` });
+        setTick((t) => t + 1);
+      })
+      .catch((e: any) => setStatus({ kind: "error", text: `delete failed: ${e?.message ?? e}` }));
+  }
+
   // Port-forward the selected row. Pods forward directly; deployments, services,
   // etc. resolve to a backing pod. Always opens the dialog (container::port +
   // editable local port + confirm), never auto-starts.
@@ -598,9 +635,24 @@ export function App() {
     pushView({ kind: "forwards", index: 0, nonce: 0 });
   }
 
+  // Settings rows: 0 = edit-mode toggle, 1 = theme dropdown. Opens on the first
+  // row with the theme dropdown closed — walking the rows changes nothing.
   function openConfig() {
-    const idx = Math.max(0, THEME_NAMES.indexOf(currentThemeName));
-    pushView({ kind: "config", index: idx });
+    pushView({
+      kind: "config",
+      index: 0,
+      themeOpen: false,
+      themeSel: Math.max(0, THEME_NAMES.indexOf(currentThemeName)),
+      themePrev: currentThemeName,
+    });
+  }
+
+  function toggleEditMode() {
+    setEditEnabled((on) => {
+      const next = !on;
+      saveConfig({ editEnabled: next });
+      return next;
+    });
   }
 
   function closeCmd() {
@@ -792,9 +844,12 @@ export function App() {
       return setView((v) => (v.kind === "forwards" ? { ...v, index: Math.min(n - 1, Math.max(0, v.index + d)) } : v));
     }
     if (view.kind === "config") {
-      const i = Math.min(THEME_NAMES.length - 1, Math.max(0, view.index + d));
-      applyTheme(THEME_NAMES[i]!); // live preview, mirrors the keyboard picker
-      return setView({ ...view, index: i });
+      if (view.themeOpen) {
+        const i = (view.themeSel + d + THEME_NAMES.length) % THEME_NAMES.length;
+        applyTheme(THEME_NAMES[i]!); // live preview while the dropdown is open
+        return setView({ ...view, themeSel: i });
+      }
+      return setView({ ...view, index: Math.max(0, Math.min(1, view.index + d)) });
     }
     // list view
     const last = Math.max(0, rows.length - 1);
@@ -904,8 +959,7 @@ export function App() {
     const hOk =
       view.kind === "list" ||
       view.kind === "containers" ||
-      view.kind === "podpick" ||
-      view.kind === "config";
+      view.kind === "podpick";
     if (view.kind !== "portpick") {
       const wantsSidebar = key.name === "tab" || ((key.name === "h" || key.name === "left") && hOk);
       if (wantsSidebar) {
@@ -1065,23 +1119,55 @@ export function App() {
       return;
     }
 
+    // ----- confirm modal (destructive action) -----
+    // Cancel is the default: a bare Enter cancels unless you've moved to the
+    // destructive button. y always confirms; n / esc / q cancel; h/l/←/→/tab
+    // toggle which button is highlighted.
+    if (view.kind === "confirm") {
+      if (key.name === "escape" || key.name === "q" || key.name === "n") return goBack();
+      if (key.name === "y") return runConfirm();
+      if (key.name === "left" || key.name === "right" || key.name === "h" || key.name === "l" || key.name === "tab")
+        return setView((v) => (v.kind === "confirm" ? { ...v, confirm: !v.confirm } : v));
+      if (key.name === "return" || key.name === "enter") return view.confirm ? runConfirm() : goBack();
+      return;
+    }
+
     // ----- help view -----
     if (view.kind === "help") {
       if (key.name === "escape" || key.name === "q" || key.sequence === "?") return goBack();
       return;
     }
 
-    // ----- config / settings (live theme picker) -----
+    // ----- config / settings (edit-mode toggle + theme dropdown) -----
     if (view.kind === "config") {
-      if (key.name === "escape" || key.name === "q" || key.name === "return" || key.name === "enter") return goBack();
-      const move = (d: 1 | -1) => {
-        const i = Math.min(THEME_NAMES.length - 1, Math.max(0, view.index + d));
-        applyTheme(THEME_NAMES[i]!); // live preview + persist as you browse
-        setView({ ...view, index: i });
-      };
-      if (key.name === "j" || key.name === "down") return move(1);
-      if (key.name === "k" || key.name === "up") return move(-1);
-      return;
+      // Theme dropdown open: j/k live-previews, enter commits, esc reverts.
+      if (view.themeOpen) {
+        const preview = (d: 1 | -1) => {
+          const i = (view.themeSel + d + THEME_NAMES.length) % THEME_NAMES.length;
+          applyTheme(THEME_NAMES[i]!); // live preview (applyTheme also persists)
+          setView({ ...view, themeSel: i });
+        };
+        if (key.name === "j" || key.name === "down") return preview(1);
+        if (key.name === "k" || key.name === "up") return preview(-1);
+        if (key.name === "return" || key.name === "enter")
+          return setView({ ...view, themeOpen: false, themePrev: currentThemeName }); // commit
+        if (key.name === "escape" || key.name === "q") {
+          applyTheme(view.themePrev); // revert the preview
+          return setView({ ...view, themeOpen: false, themeSel: Math.max(0, THEME_NAMES.indexOf(view.themePrev)) });
+        }
+        return;
+      }
+      // Dropdown closed: moving between rows changes nothing.
+      if (key.name === "escape" || key.name === "q") return goBack();
+      if (key.name === "j" || key.name === "down") return setView({ ...view, index: Math.min(1, view.index + 1) });
+      if (key.name === "k" || key.name === "up") return setView({ ...view, index: Math.max(0, view.index - 1) });
+      // space / enter act on the selected row (arrow keys are left alone so they
+      // never fight the sidebar-focus jump).
+      const act = key.name === "return" || key.name === "enter" || key.name === "space" || key.sequence === " ";
+      if (!act) return;
+      if (view.index === 0) return toggleEditMode();
+      // index 1 = theme: open the dropdown
+      return setView({ ...view, themeOpen: true, themeSel: Math.max(0, THEME_NAMES.indexOf(currentThemeName)), themePrev: currentThemeName });
     }
 
     // ----- list view -----
@@ -1105,7 +1191,8 @@ export function App() {
     if (key.name === "n") return openNamespaces();
     if (key.shift && key.name === "f") return openForwards();
     if (key.ctrl && key.name === "p") return togglePinCurrent();
-    if (key.name === "d") return describeSelected();
+    if (key.name === "d" && !key.shift) return describeSelected();
+    if (key.shift && key.name === "d") return confirmDeleteSelected();
     if (key.name === "f") return portForwardSelected();
 
     if (focus === "sidebar") {
@@ -1230,7 +1317,7 @@ export function App() {
           titleAlignment="left"
           onMouseScroll={(e) => e.scroll && onPaneScroll(e.scroll.direction)}
         >
-          {(view.kind === "list" || view.kind === "portpick") && (
+          {(view.kind === "list" || view.kind === "portpick" || view.kind === "confirm") && (
             <TableView
               table={table}
               visible={visible}
@@ -1254,7 +1341,7 @@ export function App() {
           {view.kind === "podpick" && <PodPickView view={view} height={paneInnerH} />}
           {view.kind === "forwards" && <ForwardsView forwards={client.listForwards()} index={view.index} height={paneInnerH} />}
           {view.kind === "help" && <HelpView />}
-          {view.kind === "config" && <ConfigView view={view} />}
+          {view.kind === "config" && <ConfigView view={view} editEnabled={editEnabled} />}
         </box>
       </box>
 
@@ -1293,6 +1380,9 @@ export function App() {
       {/* Port-forward modal — floats centered over the list */}
       {view.kind === "portpick" && <PortForwardModal view={view} dims={dims} />}
 
+      {/* Confirm modal (delete, …) — floats centered over the list */}
+      {view.kind === "confirm" && <ConfirmModal view={view} dims={dims} />}
+
       {/* Footer */}
       <Footer
         searchMode={searchMode}
@@ -1303,6 +1393,7 @@ export function App() {
         view={view}
         kindId={kindId}
         pinned={pins.includes(kindId)}
+        editEnabled={editEnabled}
       />
     </box>
   );

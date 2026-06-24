@@ -255,6 +255,20 @@ export class Client {
     return k8s.dumpYaml(obj);
   }
 
+  // Delete a resource by kind/name. objApi handles any built-in kind, looking
+  // up its apiVersion/kind from the same static table describe uses. Mutating —
+  // the UI gates this behind canDelete() + a confirm dialog. Errors bubble up so
+  // the caller can surface them in the status line.
+  async delete(kindId: string, namespace: string, name: string): Promise<void> {
+    const meta = DESCRIBE_META[kindId];
+    if (!meta) throw new Error(`delete not supported for ${kindId}`);
+    await this.objApi.delete({
+      apiVersion: meta.apiVersion,
+      kind: meta.kind,
+      metadata: { name, namespace: namespace || undefined },
+    });
+  }
+
   // Resolve what to port-forward for the selected row: a pod forwards itself;
   // a workload/service resolves to a backing pod via its label selector.
   // Returns the target pod name + its container/port pairs (k9s-style, so the
@@ -284,7 +298,13 @@ export class Client {
 
     const pod = await this.core.readNamespacedPod({ name: podName, namespace });
     const entries: PortEntry[] = [];
-    for (const c of pod.spec?.containers ?? []) {
+    // Native sidecars (initContainers with restartPolicy "Always") run — and
+    // expose ports — for the pod's whole life, e.g. a cloud-sql-proxy on 5432.
+    // List them alongside regular containers (like podContainers/logs do) so you
+    // can forward to them too; regular containers stay first so the usual app
+    // port remains the default selection.
+    const sidecars = (pod.spec?.initContainers ?? []).filter((c) => c.restartPolicy === "Always");
+    for (const c of [...(pod.spec?.containers ?? []), ...sidecars]) {
       for (const p of c.ports ?? []) if (p.containerPort) entries.push({ container: c.name, port: p.containerPort });
     }
     return { pod: podName, entries };
