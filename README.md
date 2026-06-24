@@ -4,7 +4,7 @@
 
 A [k9s](https://k9scli.io/)-inspired Kubernetes TUI, built on [OpenTUI](https://github.com/anomalyco/opentui) (TypeScript + React, running on [Bun](https://bun.sh)).
 
-kate is a fast, read-only terminal browser for your clusters. It talks to the Kubernetes API directly via `@kubernetes/client-node` — no `kubectl` or `helm` shell-outs — and gives you live resource lists, log following, describe, and port-forwarding with vim-style navigation.
+kate is a fast, read-only terminal browser for your clusters. It talks to the Kubernetes API directly via `@kubernetes/client-node` — no `kubectl` or `helm` shell-outs — and gives you live resource lists, log following, describe, port-forwarding, and an interactive pod shell with vim-style navigation.
 
 ![kate browsing pods with live CPU/MEM](docs/pods-view.png)
 
@@ -16,6 +16,7 @@ kate is a fast, read-only terminal browser for your clusters. It talks to the Ku
 - **Drill into logs** — press `enter` on a pod, or on a Job/Deployment/StatefulSet/DaemonSet/ReplicaSet to tail its pods (a picker appears when there's more than one).
 - **Describe** — view any object as YAML, with server-side noise (`managedFields`, etc.) stripped.
 - **Port-forward** — a dialog to pick `container::port` and a local port; forwarded pods are marked in the list, and you can review or stop all active forwards in one place.
+- **Shell** (`s`) — exec an interactive shell into a pod container over the API (prefers `bash`, falls back to `sh`); picks the container for multi-container pods. kate hands the terminal to the session and takes it back on exit (`exit` or Ctrl-D).
 - **Delete / uninstall** (`shift-d`) — pods, services, and Helm releases (a full `helm uninstall` via the API), behind a confirm dialog. Deleting a pod restarts it (its controller recreates it) to pick up new config. Mutating actions are **off by default**: flip *Edit mode* in Settings (`:config`) to enable them — the choice persists.
 - **Context & namespace switching** in-app, with fuzzy search. kate remembers your last context and the namespace you used in each context, so it reopens where you left off.
 - **Command palette** (`:`) with live fuzzy completion — jump to any resource, switch context/namespace, change theme, and more.
@@ -86,6 +87,7 @@ kate opens on your current context. Move with the arrow keys or `j`/`k`, switch 
 | `d` | describe (YAML) |
 | `shift-d` | delete pod/service · uninstall helm release (Edit mode + confirm) |
 | `f` | port-forward (pick a port if several) |
+| `s` | shell into a pod (pick a container if several) |
 | `shift-f` | list / stop active port-forwards |
 | `w` | toggle line wrap (in logs) |
 | `/` `<text>` | fuzzy filter the current list |

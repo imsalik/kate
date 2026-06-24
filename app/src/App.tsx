@@ -1,9 +1,10 @@
 import { useRenderer, useTerminalDimensions, useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, canDelete, isDynamicKind, setDynamicKinds, crdToKind } from "./k8s";
+import { Client, kindById, canDescribe, canPortForward, canViewLogs, canDrillToPods, canDelete, canExec, isDynamicKind, setDynamicKinds, crdToKind } from "./k8s";
 import type { Table } from "./k8s";
 import type { Focus, Status, View } from "./types";
+import { runPodShell } from "./shell";
 import { fuzzyScore } from "./lib/fuzzy";
 import { parseFilter, matchesCols, completeColumn, columnMatches } from "./lib/filter";
 import { copyToClipboard as clipboardCopy } from "./lib/clipboard";
@@ -495,6 +496,34 @@ export function App() {
       .catch((e: any) => setStatus({ kind: "error", text: e?.message ?? String(e) }));
   }
 
+  // Shell into the selected pod (k9s `s`). One container shells straight in;
+  // several open the container picker in "shell" mode.
+  function shellSelected() {
+    const r = rows[rowIndex];
+    if (!r || !canExec(kindId)) return;
+    client
+      .podContainers(r.namespace, r.name)
+      .then((cs) => {
+        if (cs.length === 0) return setStatus({ kind: "error", text: `no containers in ${r.name}` });
+        if (cs.length === 1) return openShell(r.namespace, r.name, cs[0]!.name);
+        pushView({ kind: "containers", pod: { namespace: r.namespace, name: r.name }, items: cs, index: 0, action: "shell" });
+      })
+      .catch((e: any) => setStatus({ kind: "error", text: e?.message ?? String(e) }));
+  }
+
+  // Hand the terminal to an interactive shell, then take it back. Pops the
+  // container picker first (if open) so the list is what's behind the session.
+  async function openShell(namespace: string, pod: string, container: string) {
+    setStack((s) => (s[s.length - 1]?.kind === "containers" ? s.slice(0, -1) : s));
+    setStatus(null);
+    const res = await runPodShell(renderer, client, { namespace, pod, container });
+    // resume() already repainted; the background poll refreshes data within a
+    // couple seconds. Don't force a tick here — a load resolving sets status to
+    // null (see the load effect), which would wipe this message instantly.
+    if (res.ok) setStatus({ kind: "info", text: `exited shell · ${pod}/${container}` });
+    else setStatus({ kind: "error", text: `shell: ${res.message ?? "session ended with an error"}` });
+  }
+
   function startLogs(pod: { namespace: string; name: string }, container: string) {
     stopLogStream();
     logBufRef.current = "";
@@ -599,29 +628,38 @@ export function App() {
       .catch((e: any) => setStatus({ kind: "error", text: `${verb === "Uninstall" ? "uninstall" : "delete"} failed: ${e?.message ?? e}` }));
   }
 
-  // Port-forward the selected row. Pods forward directly; deployments, services,
-  // etc. resolve to a backing pod. Always opens the dialog (container::port +
-  // editable local port + confirm), never auto-starts.
-  function portForwardSelected() {
-    const r = rows[rowIndex];
-    if (!r || !canPortForward(kindId)) return;
+  // Open the port-forward dialog for a resolved target (container::port +
+  // editable local port + confirm), never auto-starting. `preferContainer`
+  // pre-selects that container's first port — used when forwarding from the
+  // container picker so the highlighted container is the default.
+  function openPortForward(kind: string, namespace: string, name: string, preferContainer?: string) {
     client
-      .resolveForwardTarget(kindId, r.namespace, r.name)
+      .resolveForwardTarget(kind, namespace, name)
       .then(({ pod, entries }) => {
         if (entries.length === 0) {
           setStatus({ kind: "error", text: `${pod} declares no container ports` });
           return;
         }
+        const found = preferContainer ? entries.findIndex((e) => e.container === preferContainer) : -1;
+        const index = found >= 0 ? found : 0;
         pushView({
           kind: "portpick",
-          pod: { namespace: r.namespace, name: pod },
+          pod: { namespace, name: pod },
           entries,
-          index: 0,
-          local: String(entries[0]!.port),
+          index,
+          local: String(entries[index]!.port),
           field: 0,
         });
       })
       .catch((e: any) => setStatus({ kind: "error", text: e?.message ?? String(e) }));
+  }
+
+  // Port-forward the selected row. Pods forward directly; deployments, services,
+  // etc. resolve to a backing pod.
+  function portForwardSelected() {
+    const r = rows[rowIndex];
+    if (!r || !canPortForward(kindId)) return;
+    openPortForward(kindId, r.namespace, r.name);
   }
 
   function startForward(pod: { namespace: string; name: string }, remotePort: number, localPort: number) {
@@ -1020,9 +1058,25 @@ export function App() {
         return setView({ ...view, index: Math.min(view.items.length - 1, view.index + 1) });
       if (key.name === "k" || key.name === "up")
         return setView({ ...view, index: Math.max(0, view.index - 1) });
+      // `s` shells into the highlighted container from either picker mode — handy
+      // when you opened the picker for logs but want a shell instead.
+      if (key.name === "s") {
+        const c = view.items[view.index];
+        if (c) openShell(view.pod.namespace, view.pod.name, c.name);
+        return;
+      }
+      // `f` port-forwards the pod, defaulting to the highlighted container's port.
+      if (key.name === "f") {
+        const c = view.items[view.index];
+        if (c) openPortForward("pods", view.pod.namespace, view.pod.name, c.name);
+        return;
+      }
       if (key.name === "return" || key.name === "enter" || key.name === "l") {
         const c = view.items[view.index];
-        if (c) startLogs(view.pod, c.name);
+        if (c) {
+          if (view.action === "shell") openShell(view.pod.namespace, view.pod.name, c.name);
+          else startLogs(view.pod, c.name);
+        }
         return;
       }
       return;
@@ -1197,6 +1251,7 @@ export function App() {
     if (key.name === "d" && !key.shift) return describeSelected();
     if (key.shift && key.name === "d") return confirmDeleteSelected();
     if (key.name === "f") return portForwardSelected();
+    if (key.name === "s") return shellSelected();
 
     if (focus === "sidebar") {
       if (key.name === "j" || key.name === "down") return moveSidebar(1);

@@ -19,7 +19,9 @@ export type View =
   // expands it, `themeSel` is the highlighted theme (live-previewed while open),
   // and `themePrev` is the theme to revert to if you cancel with Esc.
   | { kind: "config"; index: number; themeOpen: boolean; themeSel: number; themePrev: string }
-  | { kind: "containers"; pod: { namespace: string; name: string }; items: ContainerInfo[]; index: number }
+  // `action` is what Enter does with the chosen container: tail logs (default)
+  // or open an interactive shell.
+  | { kind: "containers"; pod: { namespace: string; name: string }; items: ContainerInfo[]; index: number; action?: "logs" | "shell" }
   // pod picker shown when a workload (job/deployment/…) has several pods; Enter
   // drills into the chosen pod's logs. `subtitle` is the parent workload name.
   | { kind: "podpick"; namespace: string; pods: string[]; index: number; subtitle: string }

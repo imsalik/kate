@@ -25,7 +25,7 @@ export function ContainersView({
   const mem = (c: (typeof view.items)[number]) => (c.memMi === undefined ? "-" : `${Math.round(c.memMi)}Mi`);
   return (
     <box flexDirection="column">
-      <text fg={C.textDim}>{`  pick a container · enter follow logs · esc back`}</text>
+      <text fg={C.textDim}>{`  pick a container · enter ${view.action === "shell" ? "open shell" : "follow logs · s shell"} · f port-fwd · esc back`}</text>
       <box flexDirection="row" paddingX={1}>
         {headers.map((h, i) => (
           <text key={i} fg={C.accentDim}>{fit(h, w[i]!)} </text>

@@ -114,3 +114,8 @@ const DELETE_KINDS = new Set(["pods", "services", "helm"]);
 export function canDelete(kindId: string): boolean {
   return DELETE_KINDS.has(kindId);
 }
+
+// Exec/shell only makes sense for an actual pod container.
+export function canExec(kindId: string): boolean {
+  return kindId === "pods";
+}

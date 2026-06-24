@@ -23,6 +23,7 @@ export function HelpView() {
       ["d", "describe (YAML) the selected resource"],
       ["shift-d", "delete pod/service · uninstall helm release (edit mode · confirm)"],
       ["f", "port-forward a pod (pick a port if several)"],
+      ["s", "shell into a pod (pick a container if several)"],
       ["shift-f", "list / stop active port-forwards (also :pf)"],
       ["w", "toggle line wrap (in the logs view)"],
       ["c / select", "copy logs or describe to clipboard (mouse-select too)"],

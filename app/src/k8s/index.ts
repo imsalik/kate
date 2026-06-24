@@ -10,6 +10,7 @@ export {
   canViewLogs,
   canDrillToPods,
   canDelete,
+  canExec,
   isDynamicKind,
   allKinds,
   dynamicKinds,

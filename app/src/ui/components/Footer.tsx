@@ -1,5 +1,5 @@
 import type { Status, View } from "../../types";
-import { canDescribe, canPortForward, canDelete, isDynamicKind } from "../../k8s";
+import { canDescribe, canPortForward, canDelete, canExec, isDynamicKind } from "../../k8s";
 import { C } from "../theme";
 
 type Hint = [key: string, label: string];
@@ -63,7 +63,9 @@ export function Footer({
   else if (view.kind === "describe")
     hints = [["j/k", "scroll"], ["/", "search"], ["n/N", "next/prev"], ["g/G", "top/bot"], ["c", "copy"], ["esc", "back"]];
   else if (view.kind === "containers")
-    hints = [["j/k", "move"], ["enter", "follow-logs"], ["esc", "back"]];
+    hints = view.action === "shell"
+      ? [["j/k", "move"], ["enter", "shell"], ["f", "port-fwd"], ["esc", "back"]]
+      : [["j/k", "move"], ["enter", "follow-logs"], ["s", "shell"], ["f", "port-fwd"], ["esc", "back"]];
   else if (view.kind === "podpick")
     hints = [["j/k", "move"], ["enter", "logs"], ["esc", "back"]];
   else if (view.kind === "portpick")
@@ -83,6 +85,7 @@ export function Footer({
     if (canDescribe(kindId)) hints.push(["d", "describe"]);
     if (editEnabled && canDelete(kindId)) hints.push(["⇧d", kindId === "helm" ? "uninstall" : "delete"]);
     if (canPortForward(kindId)) hints.push(["f", "port-fwd"]);
+    if (canExec(kindId)) hints.push(["s", "shell"]);
     if (isDynamicKind(kindId)) hints.push(["⌃p", pinned ? "unpin" : "pin"]);
     hints.push(["⇧f", "forwards"], ["?", "help"], ["q", "quit"]);
   }

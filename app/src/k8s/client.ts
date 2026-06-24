@@ -3,7 +3,7 @@
 // also owns long-lived resources — log follows and port-forward TCP servers.
 
 import * as k8s from "@kubernetes/client-node";
-import { Writable, PassThrough } from "node:stream";
+import { Writable, Readable, PassThrough } from "node:stream";
 import * as net from "node:net";
 import * as zlib from "node:zlib";
 
@@ -32,6 +32,7 @@ export class Client {
   log!: k8s.Log;
   objApi!: k8s.KubernetesObjectApi;
   pf!: k8s.PortForward;
+  exec!: k8s.Exec;
   core!: k8s.CoreV1Api;
   apps!: k8s.AppsV1Api;
   batch!: k8s.BatchV1Api;
@@ -82,6 +83,7 @@ export class Client {
     this.log = new k8s.Log(this.kc);
     this.objApi = k8s.KubernetesObjectApi.makeApiClient(this.kc);
     this.pf = new k8s.PortForward(this.kc);
+    this.exec = new k8s.Exec(this.kc);
     this.core = this.kc.makeApiClient(k8s.CoreV1Api);
     this.apps = this.kc.makeApiClient(k8s.AppsV1Api);
     this.batch = this.kc.makeApiClient(k8s.BatchV1Api);
@@ -203,6 +205,28 @@ export class Client {
         memMi: u?.memMi,
       };
     });
+  }
+
+  // Open an interactive shell (exec with a TTY) into a pod container, wiring the
+  // caller-supplied streams to the exec websocket. Returns the WebSocket so the
+  // caller can watch for close/error; terminal hand-off and teardown are the
+  // caller's job (see ui shell helper). Prefers bash, falls back to sh — most
+  // images have one or the other.
+  async shellExec(
+    namespace: string,
+    pod: string,
+    container: string,
+    stdin: Readable,
+    stdout: Writable,
+    stderr: Writable,
+    onStatus: (status: k8s.V1Status) => void,
+  ) {
+    const command = [
+      "/bin/sh",
+      "-c",
+      "export TERM=${TERM:-xterm-256color}; if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi",
+    ];
+    return this.exec.exec(namespace, pod, container, command, stdout, stderr, stdin, true, onStatus);
   }
 
   // Per-container live CPU/MEM for a single pod, keyed by container name. Empty
