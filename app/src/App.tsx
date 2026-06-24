@@ -577,8 +577,10 @@ export function App() {
       setStatus({ kind: "info", text: "edit mode is off — enable it in Settings (:config)" });
       return;
     }
-    const singular = kindId.replace(/s$/, "");
-    pushView({ kind: "confirm", verb: "Delete", target: `${singular} "${r.name}"`, kindId, namespace: r.namespace, name: r.name, confirm: false });
+    const isHelm = kindId === "helm";
+    const verb = isHelm ? "Uninstall" : "Delete";
+    const target = isHelm ? `Helm release "${r.name}"` : `${kindId.replace(/s$/, "")} "${r.name}"`;
+    pushView({ kind: "confirm", verb, target, kindId, namespace: r.namespace, name: r.name, confirm: false });
   }
 
   // Run the action the confirm dialog was opened for, then refresh immediately
@@ -586,14 +588,15 @@ export function App() {
   function runConfirm() {
     if (view.kind !== "confirm") return;
     const { kindId: k, namespace, name } = view;
+    const verb = view.verb;
     popView();
     client
       .delete(k, namespace, name)
       .then(() => {
-        setStatus({ kind: "info", text: `deleting ${name}` });
+        setStatus({ kind: "info", text: `${verb === "Uninstall" ? "uninstalling" : "deleting"} ${name}` });
         setTick((t) => t + 1);
       })
-      .catch((e: any) => setStatus({ kind: "error", text: `delete failed: ${e?.message ?? e}` }));
+      .catch((e: any) => setStatus({ kind: "error", text: `${verb === "Uninstall" ? "uninstall" : "delete"} failed: ${e?.message ?? e}` }));
   }
 
   // Port-forward the selected row. Pods forward directly; deployments, services,

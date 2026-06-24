@@ -5,6 +5,7 @@
 import * as k8s from "@kubernetes/client-node";
 import { Writable, PassThrough } from "node:stream";
 import * as net from "node:net";
+import * as zlib from "node:zlib";
 
 import { loadConfig } from "../config";
 import { DESCRIBE_META } from "./kinds";
@@ -228,6 +229,25 @@ export class Client {
 
   // Describe: fetch the live object generically and render it as YAML.
   async describe(kindId: string, namespace: string, name: string): Promise<string> {
+    if (kindId === "helm") {
+      const r = this.decodeHelmRelease(await this.latestHelmSecret(namespace, name));
+      const summary = {
+        name: r.name,
+        namespace: r.namespace ?? namespace,
+        revision: r.version,
+        status: r.info?.status,
+        chart: r.chart?.metadata ? `${r.chart.metadata.name}-${r.chart.metadata.version}` : undefined,
+        appVersion: r.chart?.metadata?.appVersion,
+        lastDeployed: r.info?.last_deployed,
+        description: r.info?.description,
+      };
+      const values = r.config && Object.keys(r.config).length ? r.config : r.chart?.values;
+      return (
+        k8s.dumpYaml(summary) +
+        "\n# Values\n" + k8s.dumpYaml(values ?? {}) +
+        "\n# Manifest\n" + (r.manifest ?? "")
+      );
+    }
     // Built-ins from the static table; CRDs build their apiVersion/kind from
     // discovery, so describe works for any discovered resource too.
     const crd = this.crdById(kindId);
@@ -260,6 +280,7 @@ export class Client {
   // the UI gates this behind canDelete() + a confirm dialog. Errors bubble up so
   // the caller can surface them in the status line.
   async delete(kindId: string, namespace: string, name: string): Promise<void> {
+    if (kindId === "helm") return this.uninstallHelm(namespace, name);
     const meta = DESCRIBE_META[kindId];
     if (!meta) throw new Error(`delete not supported for ${kindId}`);
     await this.objApi.delete({
@@ -267,6 +288,38 @@ export class Client {
       kind: meta.kind,
       metadata: { name, namespace: namespace || undefined },
     });
+  }
+
+  // Uninstall a helm release the way `helm uninstall` does, but via the k8s API
+  // (no helm shell-out): delete every object in the release's rendered manifest,
+  // then remove all of its revision Secrets. Per-object delete errors (already
+  // gone, etc.) are swallowed so one missing object doesn't strand the rest.
+  async uninstallHelm(namespace: string, name: string): Promise<void> {
+    const { items } = await this.core.listNamespacedSecret({ namespace, labelSelector: `owner=helm,name=${name}` });
+    if (!items.length) throw new Error(`no helm release "${name}" in ${namespace}`);
+    const latest = items.reduce((a, b) =>
+      Number(a.metadata?.labels?.["version"] ?? 0) >= Number(b.metadata?.labels?.["version"] ?? 0) ? a : b,
+    );
+    const release = this.decodeHelmRelease(latest);
+    for (const obj of k8s.loadAllYaml(release.manifest ?? "") as any[]) {
+      if (!obj?.kind || !obj?.apiVersion || !obj?.metadata?.name) continue;
+      try {
+        await this.objApi.delete({
+          apiVersion: obj.apiVersion,
+          kind: obj.kind,
+          metadata: { name: obj.metadata.name, namespace: obj.metadata.namespace || namespace },
+        });
+      } catch {
+        // already deleted / not found / cluster-scoped mismatch — keep going
+      }
+    }
+    for (const s of items) {
+      try {
+        if (s.metadata?.name) await this.core.deleteNamespacedSecret({ name: s.metadata.name, namespace });
+      } catch {
+        /* best-effort cleanup of revision secrets */
+      }
+    }
   }
 
   // Resolve what to port-forward for the selected row: a pod forwards itself;
@@ -297,6 +350,12 @@ export class Client {
     }
 
     const pod = await this.core.readNamespacedPod({ name: podName, namespace });
+    // Forwarding only makes sense to a live pod — a Completed/Failed pod (e.g. a
+    // finished Job pod) has no listening process, so refuse instead of popping a
+    // dialog that could only fail. The error surfaces in the status line.
+    if (pod.status?.phase !== "Running") {
+      throw new Error(`${podName} is not running (${pod.status?.phase ?? "unknown"})`);
+    }
     const entries: PortEntry[] = [];
     // Native sidecars (initContainers with restartPolicy "Always") run — and
     // expose ports — for the pod's whole life, e.g. a cloud-sql-proxy on 5432.
@@ -440,6 +499,25 @@ export class Client {
       sink,
       () => {},
       { follow: true, tailLines: opts.tail ?? 200, timestamps: false },
+    );
+  }
+
+  // Decode a helm release Secret's `data.release` into the release JSON. The
+  // field is base64 (k8s transport) wrapping base64 (helm) wrapping gzip(JSON).
+  private decodeHelmRelease(secret: any): any {
+    const field = secret?.data?.release;
+    if (!field) throw new Error("helm release secret has no data");
+    const helmB64 = Buffer.from(field, "base64").toString("utf8");
+    const json = zlib.gunzipSync(Buffer.from(helmB64, "base64")).toString("utf8");
+    return JSON.parse(json);
+  }
+
+  // The latest-revision release Secret for a named helm release in a namespace.
+  private async latestHelmSecret(namespace: string, name: string): Promise<any> {
+    const { items } = await this.core.listNamespacedSecret({ namespace, labelSelector: `owner=helm,name=${name}` });
+    if (!items.length) throw new Error(`no helm release "${name}" in ${namespace}`);
+    return items.reduce((a, b) =>
+      Number(a.metadata?.labels?.["version"] ?? 0) >= Number(b.metadata?.labels?.["version"] ?? 0) ? a : b,
     );
   }
 

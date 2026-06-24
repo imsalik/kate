@@ -21,7 +21,7 @@ export function HelpView() {
     ["Act", [
       ["enter / l", "pods: container→logs · contexts: switch · else focus"],
       ["d", "describe (YAML) the selected resource"],
-      ["shift-d", "delete the selected pod (restarts it · confirm first)"],
+      ["shift-d", "delete pod/service · uninstall helm release (edit mode · confirm)"],
       ["f", "port-forward a pod (pick a port if several)"],
       ["shift-f", "list / stop active port-forwards (also :pf)"],
       ["w", "toggle line wrap (in the logs view)"],

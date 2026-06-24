@@ -77,9 +77,10 @@ export const DESCRIBE_META: Record<string, { apiVersion: string; kind: string }>
 };
 
 // Built-ins via the static table; CRDs are always describable (the read is
-// generic — apiVersion/kind come from discovery).
+// generic — apiVersion/kind come from discovery). Helm is handled specially:
+// describe decodes the release Secret rather than reading a live object.
 export function canDescribe(kindId: string): boolean {
-  return kindId in DESCRIBE_META || isDynamic(kindId);
+  return kindId === "helm" || kindId in DESCRIBE_META || isDynamic(kindId);
 }
 
 // Kinds whose ports can be forwarded: pods directly, plus workloads/services
@@ -108,7 +109,7 @@ export function canDrillToPods(kindId: string): boolean {
 // Kinds the UI lets you delete (behind a confirm dialog, and only when edit
 // mode is enabled in Settings). Deleting a pod restarts it (its controller
 // recreates it); deleting a service is NOT self-healing, so edit mode gates it.
-const DELETE_KINDS = new Set(["pods", "services"]);
+const DELETE_KINDS = new Set(["pods", "services", "helm"]);
 export function canDelete(kindId: string): boolean {
   return DELETE_KINDS.has(kindId);
 }

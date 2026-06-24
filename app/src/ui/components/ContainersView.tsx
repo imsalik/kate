@@ -34,7 +34,10 @@ export function ContainersView({
       {window.map((c, i) => {
         const sel = i === view.index;
         const fg = sel ? C.bg : C.text;
-        const cells = [c.name, c.ready ? "✓" : "✗", c.state, String(c.restarts), cpu(c), mem(c), c.image];
+        // A terminated container (Completed Job/init step) is never "ready" by
+        // definition — show a neutral dash rather than an alarming ✗ for it.
+        const ready = c.ready ? "✓" : c.state === "Completed" ? "—" : "✗";
+        const cells = [c.name, ready, c.state, String(c.restarts), cpu(c), mem(c), c.image];
         return (
           <box key={i} flexDirection="row" paddingX={1} backgroundColor={sel ? C.accent : undefined}>
             {cells.map((cell, ci) => (

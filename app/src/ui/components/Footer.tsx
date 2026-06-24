@@ -81,7 +81,7 @@ export function Footer({
   else {
     hints = [["j/k", "move"], ["h/l", "panes"], [":", "cmd"], ["/", "filter"], ["a", "all-ns"], ["n", "ns"]];
     if (canDescribe(kindId)) hints.push(["d", "describe"]);
-    if (editEnabled && canDelete(kindId)) hints.push(["⇧d", "delete"]);
+    if (editEnabled && canDelete(kindId)) hints.push(["⇧d", kindId === "helm" ? "uninstall" : "delete"]);
     if (canPortForward(kindId)) hints.push(["f", "port-fwd"]);
     if (isDynamicKind(kindId)) hints.push(["⌃p", pinned ? "unpin" : "pin"]);
     hints.push(["⇧f", "forwards"], ["?", "help"], ["q", "quit"]);
