@@ -50,7 +50,11 @@ function leaveManualTerminal() {
       `${ESC}[?1002l`,
       `${ESC}[?1000l`,
       `${ESC}[?25h`,
-      `${ESC}[0 q`,
+      `${ESC}[0 q`, // reset cursor shape to terminal default
+      `${ESC}]112${ESC}\\`, // reset cursor color: OpenTUI sets it (OSC 12) when an
+      //                       input focuses, and skipping setupTerminal means nothing
+      //                       else restores it — without this the recolored cursor
+      //                       leaks into the pane on exit.
       `${ESC}[?1049l`,
     ].join(""),
   );
@@ -123,6 +127,12 @@ try {
   renderer = manualTerminalSetup
     ? await createCliRendererWithoutSetup(rendererConfig)
     : await createCliRenderer(rendererConfig);
+
+  // Skipping setupTerminal() leaves the native cursor state at its default —
+  // visible, parked at home — so the render loop paints a blinking block in the
+  // top-left corner. Seed it hidden (what OpenTUI itself uses to hide the cursor);
+  // focused inputs still flip it back on when they need it.
+  if (manualTerminalSetup) renderer.setCursorPosition(0, 0, false);
 } catch (err) {
   restoreManualTerminal();
   throw err;
