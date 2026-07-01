@@ -85,6 +85,13 @@ export function App() {
   const [stack, setStack] = useState<View[]>([{ kind: "list", kindId: "pods" }]);
   const view: View = stack[stack.length - 1]!;
 
+  // portpick/confirm are centered modals drawn on top of whatever launched
+  // them. `bgView` is the frame the pane should keep showing behind the modal —
+  // the container picker when forwarding from there, the list otherwise — so
+  // opening the dialog doesn't snap the pane back to the root list.
+  const bgView: View =
+    view.kind === "portpick" || view.kind === "confirm" ? stack[stack.length - 2] ?? view : view;
+
   // The active resource kind = the top-most `list` frame on the stack.
   const kindId = useMemo(() => {
     for (let i = stack.length - 1; i >= 0; i--) {
@@ -629,25 +636,29 @@ export function App() {
   }
 
   // Open the port-forward dialog for a resolved target (container::port +
-  // editable local port + confirm), never auto-starting. `preferContainer`
-  // pre-selects that container's first port — used when forwarding from the
-  // container picker so the highlighted container is the default.
-  function openPortForward(kind: string, namespace: string, name: string, preferContainer?: string) {
+  // editable local port + confirm), never auto-starting. When `onlyContainer`
+  // is given — forwarding from the container picker — the dialog is scoped to
+  // just that container's ports rather than every container in the pod.
+  function openPortForward(kind: string, namespace: string, name: string, onlyContainer?: string) {
     client
       .resolveForwardTarget(kind, namespace, name)
       .then(({ pod, entries }) => {
-        if (entries.length === 0) {
-          setStatus({ kind: "error", text: `${pod} declares no container ports` });
+        const scoped = onlyContainer ? entries.filter((e) => e.container === onlyContainer) : entries;
+        if (scoped.length === 0) {
+          setStatus({
+            kind: "error",
+            text: onlyContainer
+              ? `${onlyContainer} declares no container ports`
+              : `${pod} declares no container ports`,
+          });
           return;
         }
-        const found = preferContainer ? entries.findIndex((e) => e.container === preferContainer) : -1;
-        const index = found >= 0 ? found : 0;
         pushView({
           kind: "portpick",
           pod: { namespace, name: pod },
-          entries,
-          index,
-          local: String(entries[index]!.port),
+          entries: scoped,
+          index: 0,
+          local: String(scoped[0]!.port),
           field: 0,
         });
       })
@@ -1316,19 +1327,19 @@ export function App() {
 
   const kind = kindById(kindId);
   const paneTitle =
-    view.kind === "logs"
-      ? `Logs · ${view.subtitle}`
-      : view.kind === "describe"
-        ? `Describe · ${view.subtitle}`
-        : view.kind === "containers"
-          ? `Containers · ${view.pod.namespace}/${view.pod.name}`
-          : view.kind === "podpick"
-          ? `Pods · ${view.subtitle}`
-          : view.kind === "forwards"
+    bgView.kind === "logs"
+      ? `Logs · ${bgView.subtitle}`
+      : bgView.kind === "describe"
+        ? `Describe · ${bgView.subtitle}`
+        : bgView.kind === "containers"
+          ? `Containers · ${bgView.pod.namespace}/${bgView.pod.name}`
+          : bgView.kind === "podpick"
+          ? `Pods · ${bgView.subtitle}`
+          : bgView.kind === "forwards"
             ? "Port Forwards"
-            : view.kind === "help"
+            : bgView.kind === "help"
               ? "Help"
-              : view.kind === "config"
+              : bgView.kind === "config"
                 ? "Settings"
                 : stack.length > 1
                     ? `${kind?.title ?? kindId}  ‹ ${namespace}`
@@ -1336,7 +1347,7 @@ export function App() {
 
   // Surface an active filter inline with the pane title (e.g. `Owner  ⌕ ing…`),
   // so a kept filter is visible after the floating bar closes.
-  const paneTitleFull = view.kind === "list" && query ? `${paneTitle}  ⌕ ${query}` : paneTitle;
+  const paneTitleFull = bgView.kind === "list" && query ? `${paneTitle}  ⌕ ${query}` : paneTitle;
 
   return (
     <box flexDirection="column" width={dims.width} height={dims.height} backgroundColor={C.bg}>
@@ -1375,7 +1386,7 @@ export function App() {
           titleAlignment="left"
           onMouseScroll={(e) => e.scroll && onPaneScroll(e.scroll.direction)}
         >
-          {(view.kind === "list" || view.kind === "portpick" || view.kind === "confirm") && (
+          {bgView.kind === "list" && (
             <TableView
               table={table}
               visible={visible}
@@ -1393,13 +1404,13 @@ export function App() {
               onRowClick={onRowClick}
             />
           )}
-          {view.kind === "logs" && <LogsView view={view} height={paneInnerH} width={dims.width - 30} matches={logMatches} />}
-          {view.kind === "describe" && <DescribeView view={view} height={paneInnerH} width={dims.width - 30} matches={describeMatches} />}
-          {view.kind === "containers" && <ContainersView view={view} height={paneInnerH} />}
-          {view.kind === "podpick" && <PodPickView view={view} height={paneInnerH} />}
-          {view.kind === "forwards" && <ForwardsView forwards={client.listForwards()} index={view.index} height={paneInnerH} />}
-          {view.kind === "help" && <HelpView />}
-          {view.kind === "config" && <ConfigView view={view} editEnabled={editEnabled} />}
+          {bgView.kind === "logs" && <LogsView view={bgView} height={paneInnerH} width={dims.width - 30} matches={logMatches} />}
+          {bgView.kind === "describe" && <DescribeView view={bgView} height={paneInnerH} width={dims.width - 30} matches={describeMatches} />}
+          {bgView.kind === "containers" && <ContainersView view={bgView} height={paneInnerH} />}
+          {bgView.kind === "podpick" && <PodPickView view={bgView} height={paneInnerH} />}
+          {bgView.kind === "forwards" && <ForwardsView forwards={client.listForwards()} index={bgView.index} height={paneInnerH} />}
+          {bgView.kind === "help" && <HelpView />}
+          {bgView.kind === "config" && <ConfigView view={bgView} editEnabled={editEnabled} />}
         </box>
       </box>
 
