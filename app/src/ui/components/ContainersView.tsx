@@ -1,51 +1,43 @@
 import type { View } from "../../types";
+import { containerTable } from "../../k8s";
 import { C } from "../theme";
-import { fit } from "../format";
+import { DataTable } from "./DataTable";
 
 export function ContainersView({
   view,
   height,
+  width,
+  onRowClick,
 }: {
   view: Extract<View, { kind: "containers" }>;
   height: number;
+  width: number;
+  onRowClick?: (idx: number) => void;
 }) {
-  const viewH = Math.max(1, height - 1);
-  const window = view.items.slice(0, viewH);
-  const headers = ["NAME", "READY", "STATE", "RESTARTS", "CPU", "MEM", "IMAGE"];
-  const w = [
-    Math.max(4, ...view.items.map((c) => c.name.length)),
-    5,
-    Math.max(5, ...view.items.map((c) => c.state.length)),
-    8,
-    6,
-    8,
-    60,
-  ];
-  const cpu = (c: (typeof view.items)[number]) => (c.cpuMilli === undefined ? "-" : `${Math.round(c.cpuMilli)}m`);
-  const mem = (c: (typeof view.items)[number]) => (c.memMi === undefined ? "-" : `${Math.round(c.memMi)}Mi`);
+  const table = containerTable(view.items);
+  // One row for the hint line, one for the table's column-header band.
+  const viewH = Math.max(1, height - 2);
+  const total = table.rows.length;
+  const start = view.index < viewH ? 0 : view.index - viewH + 1;
+  const visible = table.rows.slice(start, start + viewH);
+
   return (
     <box flexDirection="column">
       <text fg={C.textDim}>{`  pick a container · enter ${view.action === "shell" ? "open shell" : "follow logs · s shell"} · f port-fwd · esc back`}</text>
-      <box flexDirection="row" paddingX={1}>
-        {headers.map((h, i) => (
-          <text key={i} fg={C.accentDim}>{fit(h, w[i]!)} </text>
-        ))}
-      </box>
-      {window.map((c, i) => {
-        const sel = i === view.index;
-        const fg = sel ? C.bg : C.text;
-        // A terminated container (Completed Job/init step) is never "ready" by
-        // definition — show a neutral dash rather than an alarming ✗ for it.
-        const ready = c.ready ? "✓" : c.state === "Completed" ? "—" : "✗";
-        const cells = [c.name, ready, c.state, String(c.restarts), cpu(c), mem(c), c.image];
-        return (
-          <box key={i} flexDirection="row" paddingX={1} backgroundColor={sel ? C.accent : undefined}>
-            {cells.map((cell, ci) => (
-              <text key={ci} fg={fg}>{fit(cell, w[ci]!)} </text>
-            ))}
-          </box>
-        );
-      })}
+      <DataTable
+        headers={table.headers}
+        allRows={table.rows}
+        rows={visible}
+        start={start}
+        total={total}
+        viewH={viewH}
+        selIndex={view.index}
+        focused
+        width={width}
+        // IMAGE rides beside NAME on the left; the metrics push to the right edge.
+        pinLeft={(h) => h === "NAME" || h === "IMAGE"}
+        onRowClick={onRowClick}
+      />
     </box>
   );
 }

@@ -30,6 +30,13 @@ export interface ContainerInfo {
   // Live usage from the metrics API; undefined when metrics-server is absent.
   cpuMilli?: number;
   memMi?: number;
+  // Base for usage % = the container's CPU/mem limit, else its request; undefined
+  // when neither is set (we can't judge how hot it is → shown as "-"/dim).
+  cpuBase?: number;
+  memBase?: number;
+  // When the container started running, for the AGE column; undefined if it has
+  // no running/terminated state yet.
+  startedAt?: string;
 }
 
 export interface PortForwardEntry {

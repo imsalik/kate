@@ -195,6 +195,9 @@ export class Client {
       else if (st?.state?.waiting?.reason) state = st.state.waiting.reason;
       else if (st?.state?.terminated?.reason) state = st.state.terminated.reason;
       const u = usage.get(c.name);
+      const cpuBase = parseCpu(c.resources?.limits?.cpu) ?? parseCpu(c.resources?.requests?.cpu) ?? undefined;
+      const memBase = parseMem(c.resources?.limits?.memory) ?? parseMem(c.resources?.requests?.memory) ?? undefined;
+      const started = st?.state?.running?.startedAt ?? st?.state?.terminated?.startedAt;
       return {
         name: c.name,
         image: c.image ?? "",
@@ -203,6 +206,9 @@ export class Client {
         restarts: st?.restartCount ?? 0,
         cpuMilli: u?.cpuMilli,
         memMi: u?.memMi,
+        cpuBase: cpuBase || undefined,
+        memBase: memBase || undefined,
+        startedAt: started ? (typeof started === "string" ? started : started.toISOString()) : undefined,
       };
     });
   }

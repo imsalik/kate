@@ -1406,7 +1406,14 @@ export function App() {
           )}
           {bgView.kind === "logs" && <LogsView view={bgView} height={paneInnerH} width={dims.width - 30} matches={logMatches} />}
           {bgView.kind === "describe" && <DescribeView view={bgView} height={paneInnerH} width={dims.width - 30} matches={describeMatches} />}
-          {bgView.kind === "containers" && <ContainersView view={bgView} height={paneInnerH} />}
+          {bgView.kind === "containers" && (
+            <ContainersView
+              view={bgView}
+              height={paneInnerH}
+              width={paneContentW}
+              onRowClick={(i) => setStack((s) => s.map((v) => (v.kind === "containers" ? { ...v, index: i } : v)))}
+            />
+          )}
           {bgView.kind === "podpick" && <PodPickView view={bgView} height={paneInnerH} />}
           {bgView.kind === "forwards" && <ForwardsView forwards={client.listForwards()} index={bgView.index} height={paneInnerH} />}
           {bgView.kind === "help" && <HelpView />}

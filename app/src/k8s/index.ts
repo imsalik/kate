@@ -17,6 +17,7 @@ export {
   setDynamicKinds,
 } from "./kinds";
 export { crdToKind, type CrdInfo } from "./discovery";
+export { containerTable } from "./fetchers";
 export type {
   Table,
   Row,

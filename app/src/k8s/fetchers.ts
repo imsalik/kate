@@ -5,7 +5,7 @@
 import * as k8s from "@kubernetes/client-node";
 
 import type { Client } from "./client";
-import type { CellColor, Table } from "./types";
+import type { CellColor, ContainerInfo, Table } from "./types";
 import { age, parseCpu, parseMem, podStatusColor, usageColor } from "./quantities";
 
 type Fetcher = (c: Client, ns?: string) => Promise<Table>;
@@ -20,6 +20,35 @@ function nsCells(all: boolean, ns: string, ...rest: string[]): string[] {
 }
 function nsColors(all: boolean, ...rest: CellColor[]): CellColor[] {
   return all ? [undefined, ...rest] : rest;
+}
+
+// Shape a pod's containers into a Table so the container picker renders through
+// the same layout as every list view. Columns mirror the pods view (CPU/MEM/
+// %CPU/%MEM/AGE) with IMAGE pinned next to NAME; the value formatting and
+// semantic colors match `pods` above so a container reads the same as its pod.
+export function containerTable(items: ContainerInfo[]): Table {
+  return {
+    headers: ["NAME", "IMAGE", "READY", "STATE", "RESTARTS", "CPU", "MEM", "%CPU", "%MEM", "AGE"],
+    rows: items.map((c) => {
+      const cpuCell = c.cpuMilli === undefined ? "-" : `${Math.round(c.cpuMilli)}m`;
+      const memCell = c.memMi === undefined ? "-" : `${Math.round(c.memMi)}Mi`;
+      const cpuPct = c.cpuMilli !== undefined && c.cpuBase ? `${Math.round((c.cpuMilli / c.cpuBase) * 100)}%` : "-";
+      const memPct = c.memMi !== undefined && c.memBase ? `${Math.round((c.memMi / c.memBase) * 100)}%` : "-";
+      // A terminated container (Completed Job/init step) is never "ready" by
+      // definition — a neutral dash rather than an alarming ✗.
+      const ready = c.ready ? "✓" : c.state === "Completed" ? "—" : "✗";
+      const readyColor: CellColor = c.ready ? "ok" : c.state === "Completed" ? "dim" : "err";
+      const restartColor: CellColor = c.restarts === 0 ? undefined : c.restarts > 5 ? "err" : "warn";
+      const cpuColor: CellColor = c.cpuMilli !== undefined && c.cpuBase ? usageColor(c.cpuMilli, c.cpuBase) : "dim";
+      const memColor: CellColor = c.memMi !== undefined && c.memBase ? usageColor(c.memMi, c.memBase) : "dim";
+      return {
+        name: c.name,
+        namespace: "",
+        cells: [c.name, c.image, ready, c.state, String(c.restarts), cpuCell, memCell, cpuPct, memPct, c.startedAt ? age(c.startedAt) : "-"],
+        colors: [undefined, undefined, readyColor, podStatusColor(c.state), restartColor, "dim", "dim", cpuColor, memColor, undefined],
+      };
+    }),
+  };
 }
 
 // Helper so the Apps* fetchers can share the namespaced/all-namespaces branch.

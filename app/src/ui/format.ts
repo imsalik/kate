@@ -29,3 +29,54 @@ export function colWidths(t: Table, cap = 60): number[] {
   }
   return w.map((x) => Math.min(x, cap));
 }
+
+const MIN_GAP = 2; // minimum space between the NAME group and the metrics group
+const MIN_NAME = 12; // never shrink NAME below this
+const MAX_NAME = 80; // …nor stretch it past the longest name
+
+// Shared column layout for every list-style table (list view, container picker).
+// Columns split into a left group (identity, pinned left — NAME and anything the
+// caller pins) and a right group (metrics, pushed to the right edge by a flex
+// spacer). Widths are the natural width (header vs widest cell) lowered by a
+// uniform ceiling until the row fits `width`: the widest columns come down first,
+// each floored (NAME → MIN_NAME, others → their header width), so NAME gives
+// before the small metric columns. `leadWidth` is the fixed chrome to the left of
+// the columns (cursor gutter + any marker gutter); `pinLeft` overrides the
+// default "index ≤ NAME" split so a view can keep e.g. IMAGE beside NAME.
+export function planColumns(
+  headers: string[],
+  rows: { cells: string[] }[],
+  opts: { width: number; leadWidth: number; pinLeft?: (header: string, index: number) => boolean },
+): { colW: number[]; leftIdx: number[]; rightIdx: number[]; nameIdx: number } {
+  const { width, leadWidth, pinLeft } = opts;
+  const nameIdx = headers.indexOf("NAME");
+  const hasName = nameIdx >= 0;
+
+  const nat = headers.map((h, i) => {
+    let w = h.length;
+    for (const r of rows) w = Math.max(w, (r.cells[i] ?? "").length);
+    return i === nameIdx ? Math.min(MAX_NAME, w) : Math.min(60, w);
+  });
+
+  const cols = headers.map((_, i) => i);
+  const isLeft = pinLeft ?? ((_h, i) => i <= nameIdx);
+  const leftIdx = hasName ? cols.filter((i) => isLeft(headers[i]!, i)) : cols;
+  const rightIdx = hasName ? cols.filter((i) => !isLeft(headers[i]!, i)) : [];
+
+  const colW = nat.slice();
+  if (hasName) {
+    const chrome = leadWidth + MIN_GAP + 1;
+    const floorOf = (i: number) =>
+      i === nameIdx
+        ? Math.min(nat[i] ?? MIN_NAME, MIN_NAME)
+        : Math.min(nat[i] ?? 1, headers[i]?.length ?? 1);
+    const widthFor = (cap: number) =>
+      chrome + nat.reduce((s, w, i) => s + Math.max(floorOf(i), Math.min(w, cap)) + 1, 0);
+
+    let cap = Math.max(MIN_NAME, ...nat);
+    while (cap > 1 && widthFor(cap) > width) cap--;
+    for (let i = 0; i < colW.length; i++) colW[i] = Math.max(floorOf(i), Math.min(nat[i] ?? 0, cap));
+  }
+
+  return { colW, leftIdx, rightIdx, nameIdx };
+}
