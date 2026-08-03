@@ -674,6 +674,16 @@ export function App() {
   }
 
   function startForward(pod: { namespace: string; name: string }, remotePort: number, localPort: number) {
+    // Guard the duplicate: a forward for this exact pod:remotePort already
+    // exists, so don't silently tear it down and re-listen. Point the user at
+    // the forwards view (shift-f) to review or stop it. A *different* remote
+    // port on the same pod is legitimate and still goes through.
+    const dup = client.listForwards().find((f) => f.pod === pod.name && f.remotePort === remotePort);
+    if (dup) {
+      setStatus({ kind: "info", text: `${pod.name}:${remotePort} already forwarded on localhost:${dup.localPort} — shift-f to manage` });
+      popView();
+      return;
+    }
     client
       .startForward(pod.namespace, pod.name, remotePort, localPort)
       .then((entry) => {
@@ -1291,10 +1301,11 @@ export function App() {
 
   // ----- layout math ------------------------------------------------------
   const HEADER_H = 4; // bordered header: 2 content rows + top/bottom border
-  const SIDEBAR_W = 22;
-  // Pane inner content width = terminal − body padding(2) − sidebar − gap(1) −
-  // pane border(2). Used to spread the table columns; recomputed on resize.
-  const paneContentW = Math.max(20, dims.width - SIDEBAR_W - 7);
+  const SIDEBAR_W = 20;
+  // Pane inner content width = terminal − body right padding(1) − sidebar −
+  // gap(1) − pane border(2). Used to spread the table columns; recomputed on
+  // resize. (Left body padding dropped to hand that column to the middle.)
+  const paneContentW = Math.max(20, dims.width - SIDEBAR_W - 6);
   const bodyH = Math.max(3, dims.height - HEADER_H - 3); // minus header + footer(2) + margin
   const paneInnerH = Math.max(1, bodyH - 2); // minus pane border top/bottom
   const tableViewH = Math.max(1, paneInnerH - 1); // minus column-header row
@@ -1366,13 +1377,14 @@ export function App() {
       />
 
       {/* Body: sidebar + main pane */}
-      <box flexDirection="row" flexGrow={1} gap={1} paddingX={1}>
+      <box flexDirection="row" flexGrow={1} gap={1} paddingLeft={0} paddingRight={1}>
         <Sidebar
           entries={sidebar}
           sideIndex={sideIndex}
           focus={focus}
           activeId={kindId}
           inList={inList}
+          maxRows={paneInnerH}
           onSelect={onSidebarSelect}
           onScroll={onSidebarScroll}
         />

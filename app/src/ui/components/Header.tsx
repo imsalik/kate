@@ -58,6 +58,7 @@ export function Header({
       backgroundColor={C.surface}
       paddingX={1}
       flexDirection="row"
+      flexShrink={0}
       title={" ⎈ kate "}
       titleAlignment="left"
     >

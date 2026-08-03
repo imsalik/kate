@@ -6,7 +6,7 @@ type Hint = [key: string, label: string];
 
 function Hints({ hints }: { hints: Hint[] }) {
   return (
-    <box flexDirection="row" paddingX={1} backgroundColor={C.surface}>
+    <box flexDirection="row" flexShrink={0} paddingX={1} backgroundColor={C.surface}>
       {hints.map(([k, label], i) => (
         <box key={i} flexDirection="row">
           {i > 0 && <text fg={C.border} selectable={false}>{"  "}</text>}
@@ -44,14 +44,14 @@ export function Footer({
   // contextual key hints.
   if (status?.kind === "error") {
     return (
-      <box paddingX={1} backgroundColor={C.surface}>
+      <box flexShrink={0} paddingX={1} backgroundColor={C.surface}>
         <text fg={C.danger} selectable={false}>{`✗ ${status.text}`}</text>
       </box>
     );
   }
   if (status?.kind === "info") {
     return (
-      <box paddingX={1} backgroundColor={C.surface}>
+      <box flexShrink={0} paddingX={1} backgroundColor={C.surface}>
         <text fg={C.ok} selectable={false}>{`✓ ${status.text}`}</text>
       </box>
     );

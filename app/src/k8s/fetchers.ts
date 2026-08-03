@@ -131,7 +131,7 @@ export const FETCHERS: Record<string, Fetcher> = {
     ]);
     const all = c.allNamespaces;
     return {
-      headers: nsHeaders(all, "NAME", "READY", "STATUS", "RESTARTS", "CPU", "MEM", "%CPU", "%MEM", "AGE"),
+      headers: nsHeaders(all, "NAME", "READY", "STATUS", "RESTARTS", "CPU", "MEM", "%CPU", "%MEM", "NODE", "AGE"),
       rows: items.map((p) => {
         // Native sidecars are initContainers with restartPolicy "Always"; they
         // run for the pod's whole life and count toward READY (like k9s), unlike
@@ -155,6 +155,8 @@ export const FETCHERS: Record<string, Fetcher> = {
         }
         const name = p.metadata?.name ?? "";
         const podNs = p.metadata?.namespace ?? "";
+        // Scheduling node (blank while Pending/unscheduled).
+        const node = p.spec?.nodeName ?? "";
 
         // Sum container limits and requests; usage % is taken against the limit
         // when set, otherwise the request (k9s shows "n/a" when neither exists).
@@ -193,9 +195,9 @@ export const FETCHERS: Record<string, Fetcher> = {
           namespace: podNs,
           cells: nsCells(all, podNs, name,
             `${ready}/${total}`, status, String(restarts),
-            cpuCell, memCell, cpuPct, memPct, age(p.metadata?.creationTimestamp)),
+            cpuCell, memCell, cpuPct, memPct, node, age(p.metadata?.creationTimestamp)),
           colors: nsColors(all, undefined, readyColor, podStatusColor(status),
-            restartColor, "dim", "dim", cpuColor, memColor, undefined),
+            restartColor, "dim", "dim", cpuColor, memColor, "dim", undefined),
         };
       }),
     };

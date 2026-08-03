@@ -72,7 +72,7 @@ export function CommandPalette({
         const on = idx === sel;
         return (
           <box key={idx} flexDirection="row" backgroundColor={on ? C.highlight : undefined}>
-            <text fg={on ? C.accent : C.bg}>{on ? "▌ " : "  "}</text>
+            <text selectable={false}>{"  "}</text>
             <text fg={on ? C.accentLight : C.text}>
               {on ? <b>{fit(c.label, labelW)}</b> : fit(c.label, labelW)}
             </text>

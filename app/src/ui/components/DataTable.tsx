@@ -3,7 +3,9 @@ import { C } from "../theme";
 import { fit, planColumns } from "../format";
 import { cellColor } from "../colors";
 
-const GUTTER = 2; // cursor column ("▌ " / "  ")
+// The selected row is shown by its background highlight (+ bold name), so we
+// don't spend a column on a cursor bar. Only the PF marker keeps a gutter.
+const GUTTER = 0;
 const PF_W = 2; // marker gutter ("⇄ " / "  "), pods view only
 
 // The one table renderer used across the app (list view, container picker) so
@@ -52,8 +54,7 @@ export function DataTable({
   return (
     <box flexDirection="column">
       {/* column-header band */}
-      <box flexDirection="row" backgroundColor={C.surface} paddingX={1}>
-        <text fg={C.accentDim}>{"  "}</text>
+      <box flexDirection="row" backgroundColor={C.surface} paddingLeft={0} paddingRight={1}>
         {showPF && <text fg={C.accentDim}>{"  "}</text>}
         {leftIdx.map((i) => headerCell(i))}
         <box flexGrow={1} />
@@ -84,11 +85,11 @@ export function DataTable({
           <box
             key={idx}
             flexDirection="row"
-            paddingX={1}
+            paddingLeft={0}
+            paddingRight={1}
             backgroundColor={sel ? C.highlight : undefined}
             onMouseDown={onRowClick ? () => onRowClick(idx) : undefined}
           >
-            <text fg={C.accent}>{sel ? "▌ " : "  "}</text>
             {showPF && <text fg={C.accentLight}>{pf ? "⇄ " : "  "}</text>}
             {leftIdx.map((i) => cell(i))}
             <box flexGrow={1} />
