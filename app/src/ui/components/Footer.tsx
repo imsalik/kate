@@ -28,6 +28,7 @@ export function Footer({
   kindId,
   pinned,
   editEnabled,
+  sidebarCollapsed,
 }: {
   searchMode: boolean;
   cmdMode: boolean;
@@ -38,6 +39,7 @@ export function Footer({
   kindId: string;
   pinned: boolean;
   editEnabled: boolean;
+  sidebarCollapsed: boolean;
 }) {
   // The `/` filter and `:` command palette render their own floating bars, so
   // the footer just shows a transient status (error or info) or, otherwise,
@@ -81,7 +83,7 @@ export function Footer({
       ? [["j/k", "preview"], ["enter", "select"], ["esc", "cancel"]]
       : [["j/k", "move"], ["space/enter", "toggle/open"], ["esc", "done"]];
   else {
-    hints = [["j/k", "move"], ["h/l", "panes"], [":", "cmd"], ["/", "filter"], ["a", "all-ns"], ["n", "ns"]];
+    hints = [["j/k", "move"], ["h/l", "panes"], [":", "cmd"], ["/", "filter"], ["a", "all-ns"], ["n", "ns"], ["⌃b", sidebarCollapsed ? "menu" : "hide"]];
     if (canDescribe(kindId)) hints.push(["d", "describe"]);
     if (editEnabled && canDelete(kindId)) hints.push(["⇧d", kindId === "helm" ? "uninstall" : "delete"]);
     if (canPortForward(kindId)) hints.push(["f", "port-fwd"]);

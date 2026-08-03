@@ -26,6 +26,9 @@ export interface KateConfig {
   // Namespace last selected per context name, so each cluster reopens where you
   // left it instead of snapping back to "default".
   namespaceByContext?: Record<string, string>;
+  // Whether the resource sidebar is collapsed (hidden) to hand its width to the
+  // main pane. Toggled with ctrl-b; remembered across launches.
+  sidebarCollapsed?: boolean;
   // CRD kind-ids the user pinned to the sidebar. Stored globally; a pin only
   // shows in clusters where that CRD actually exists (discovery decides), so a
   // pin from one cluster silently no-ops in another instead of showing a dead

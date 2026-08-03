@@ -109,6 +109,10 @@ export function App() {
   // Settings. Off by default so kate stays read-mostly until you flip it.
   const [editEnabled, setEditEnabled] = useState<boolean>(() => loadConfig().editEnabled ?? false);
 
+  // Whether the resource sidebar is collapsed (hidden), handing its width to the
+  // main pane. Toggled with ctrl-b; persisted so it sticks across launches.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => loadConfig().sidebarCollapsed ?? false);
+
   // The sidebar lists built-in kinds, then a "Custom" group with the pinned CRDs
   // that exist in this cluster plus the CRD currently being viewed (so you can
   // always see where you are). Bulk CRDs still live behind the `:` palette — see
@@ -356,6 +360,23 @@ export function App() {
   function goBack() {
     if (view.kind === "logs") stopLogStream();
     popView();
+  }
+
+  // Show/hide the resource sidebar, persisting the choice. Collapsing moves
+  // focus off the sidebar (nothing to focus when it's hidden); expanding is a
+  // no-op if already open, used by the Tab/h jump to reveal it on demand.
+  function toggleSidebar() {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      saveConfig({ sidebarCollapsed: next });
+      if (next) setFocus("table");
+      return next;
+    });
+  }
+  function expandSidebar() {
+    if (!sidebarCollapsed) return;
+    setSidebarCollapsed(false);
+    saveConfig({ sidebarCollapsed: false });
   }
 
   function moveSidebar(dir: 1 | -1) {
@@ -1010,6 +1031,10 @@ export function App() {
       return renderer.destroy();
     }
 
+    // Toggle the resource sidebar from anywhere (except the port-forward form,
+    // which owns its own keys) to reclaim its width for the main pane.
+    if (key.ctrl && key.name === "b" && view.kind !== "portpick") return toggleSidebar();
+
     // Universal jump to the resource sidebar. Tab works from anywhere; h / ←
     // also work from the menu-like views. From a sub-view this collapses the
     // stack back to the list spine first — the sidebar only highlights over a
@@ -1025,6 +1050,7 @@ export function App() {
     if (view.kind !== "portpick") {
       const wantsSidebar = key.name === "tab" || ((key.name === "h" || key.name === "left") && hOk);
       if (wantsSidebar) {
+        expandSidebar(); // navigating to the sidebar reveals it if it was hidden
         if (view.kind === "list") {
           // On a list, Tab toggles focus; h / ← go straight to the sidebar.
           if (key.name === "tab") setFocus((f) => (f === "sidebar" ? "table" : "sidebar"));
@@ -1305,7 +1331,11 @@ export function App() {
   // Pane inner content width = terminal − body right padding(1) − sidebar −
   // gap(1) − pane border(2). Used to spread the table columns; recomputed on
   // resize. (Left body padding dropped to hand that column to the middle.)
-  const paneContentW = Math.max(20, dims.width - SIDEBAR_W - 6);
+  // When the sidebar is collapsed it (and the row gap) disappear, so the pane
+  // reclaims that width.
+  const paneContentW = sidebarCollapsed
+    ? Math.max(20, dims.width - 4)
+    : Math.max(20, dims.width - SIDEBAR_W - 6);
   const bodyH = Math.max(3, dims.height - HEADER_H - 3); // minus header + footer(2) + margin
   const paneInnerH = Math.max(1, bodyH - 2); // minus pane border top/bottom
   const tableViewH = Math.max(1, paneInnerH - 1); // minus column-header row
@@ -1378,16 +1408,18 @@ export function App() {
 
       {/* Body: sidebar + main pane */}
       <box flexDirection="row" flexGrow={1} gap={1} paddingLeft={0} paddingRight={1}>
-        <Sidebar
-          entries={sidebar}
-          sideIndex={sideIndex}
-          focus={focus}
-          activeId={kindId}
-          inList={inList}
-          maxRows={paneInnerH}
-          onSelect={onSidebarSelect}
-          onScroll={onSidebarScroll}
-        />
+        {!sidebarCollapsed && (
+          <Sidebar
+            entries={sidebar}
+            sideIndex={sideIndex}
+            focus={focus}
+            activeId={kindId}
+            inList={inList}
+            maxRows={paneInnerH}
+            onSelect={onSidebarSelect}
+            onScroll={onSidebarScroll}
+          />
+        )}
         <box
           flexGrow={1}
           flexDirection="column"
@@ -1482,6 +1514,7 @@ export function App() {
         kindId={kindId}
         pinned={pins.includes(kindId)}
         editEnabled={editEnabled}
+        sidebarCollapsed={sidebarCollapsed}
       />
     </box>
   );
