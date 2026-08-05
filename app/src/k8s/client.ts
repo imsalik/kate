@@ -185,10 +185,11 @@ export class Client {
       ...(pod.status?.containerStatuses ?? []),
       ...(pod.status?.initContainerStatuses ?? []),
     ].map((s) => [s.name, s] as const));
-    // Native sidecars (initContainers with restartPolicy "Always") run for the
-    // pod's whole life, so list them alongside regular containers (like k9s).
-    const sidecars = (pod.spec?.initContainers ?? []).filter((c) => c.restartPolicy === "Always");
-    return [...sidecars, ...(pod.spec?.containers ?? [])].map((c) => {
+    // List all init containers ahead of the regular ones (like k9s): native
+    // sidecars (restartPolicy "Always") run the pod's whole life, and ordinary
+    // init steps stay visible in their Completed/Terminated state.
+    const inits = pod.spec?.initContainers ?? [];
+    return [...inits, ...(pod.spec?.containers ?? [])].map((c) => {
       const st = statuses.get(c.name);
       let state = "—";
       if (st?.state?.running) state = "Running";
