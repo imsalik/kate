@@ -63,11 +63,11 @@ function listApps(
 export const FETCHERS: Record<string, Fetcher> = {
   // Not a real API call — lists kubeconfig contexts. Enter switches live.
   contexts: async (c) => ({
-    headers: ["NAME", "CLUSTER", "AUTHINFO", "NAMESPACE"],
+    headers: ["NAME", "CLUSTER", "NAMESPACE"],
     rows: c.contexts().map((ctx) => ({
       name: ctx.name,
       namespace: ctx.namespace,
-      cells: [ctx.active ? `${ctx.name} (*)` : ctx.name, ctx.cluster, ctx.user, ctx.namespace],
+      cells: [ctx.active ? `${ctx.name} (*)` : ctx.name, ctx.cluster, ctx.namespace],
     })),
   }),
 
