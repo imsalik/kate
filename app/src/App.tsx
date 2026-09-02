@@ -1336,6 +1336,10 @@ export function App() {
   const paneContentW = sidebarCollapsed
     ? Math.max(20, dims.width - 4)
     : Math.max(20, dims.width - SIDEBAR_W - 6);
+  // logs/describe text width: pane inner width minus their paddingX(2)
+  const paneTextW = sidebarCollapsed
+    ? Math.max(20, dims.width - 5)
+    : Math.max(20, dims.width - SIDEBAR_W - 6);
   const bodyH = Math.max(3, dims.height - HEADER_H - 3); // minus header + footer(2) + margin
   const paneInnerH = Math.max(1, bodyH - 2); // minus pane border top/bottom
   const tableViewH = Math.max(1, paneInnerH - 1); // minus column-header row
@@ -1448,8 +1452,8 @@ export function App() {
               onRowClick={onRowClick}
             />
           )}
-          {bgView.kind === "logs" && <LogsView view={bgView} height={paneInnerH} width={dims.width - 30} matches={logMatches} />}
-          {bgView.kind === "describe" && <DescribeView view={bgView} height={paneInnerH} width={dims.width - 30} matches={describeMatches} />}
+          {bgView.kind === "logs" && <LogsView view={bgView} height={paneInnerH} width={paneTextW} matches={logMatches} />}
+          {bgView.kind === "describe" && <DescribeView view={bgView} height={paneInnerH} width={paneTextW} matches={describeMatches} />}
           {bgView.kind === "containers" && (
             <ContainersView
               view={bgView}
