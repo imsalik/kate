@@ -25,6 +25,7 @@ export interface Command {
   name: string; // canonical id App switches on
   aliases: string[]; // extra strings that match this command
   title: string; // what shows in the palette
+  short?: string; // prefix on arg rows (defaults to title)
   hint: string; // one-line description (the right column)
   arg?: ArgKind;
   crd?: boolean; // a discovered custom resource — the palette tags these
@@ -39,8 +40,8 @@ export interface CommandContext {
 
 // Non-resource commands. Resource kinds are appended from the KINDS registry.
 const VERBS: Command[] = [
-  { name: "contexts", aliases: ["ctx", "context"], title: "context", hint: "switch cluster / context (arg or list)", arg: "context" },
-  { name: "namespace", aliases: ["ns"], title: "namespace", hint: "switch namespace (arg or picker)", arg: "namespace" },
+  { name: "contexts", aliases: ["ctx", "context"], title: "context", short: "ctx", hint: "switch cluster / context (arg or list)", arg: "context" },
+  { name: "namespace", aliases: ["ns"], title: "namespace", short: "ns", hint: "switch namespace (arg or picker)", arg: "namespace" },
   { name: "forwards", aliases: ["pf", "portforward", "portforwards"], title: "port-forwards", hint: "list / stop active forwards" },
   { name: "theme", aliases: ["themes"], title: "theme", hint: "change theme (live)", arg: "theme" },
   { name: "config", aliases: ["cfg", "settings", "set"], title: "config", hint: "settings (theme, …)" },
@@ -108,6 +109,7 @@ export interface Candidate {
   command: Command;
   arg?: string; // resolved argument (for arg candidates)
   complete: string; // full text Tab fills / Enter runs
+  prefix?: string; // verb shown before an arg label, in accent color
   label: string; // left column
   hint: string; // right column
 }
@@ -156,6 +158,7 @@ export function matchCommands(input: string, ctx: CommandContext = {}): Candidat
     const arg = trimmed.slice(spaceIdx + 1).trimStart();
     const cmd = commandByHead(commands, head);
     if (cmd?.arg) {
+      const prefix = cmd.short ?? cmd.title;
       const opts = argOptions(cmd.arg, ctx);
       if (opts) {
         const ranked = opts
@@ -167,18 +170,19 @@ export function matchCommands(input: string, ctx: CommandContext = {}): Candidat
           command: cmd,
           arg: v,
           complete: `${cmd.name} ${v}`,
-          label: `${cmd.title} ${v}`,
-          hint: `apply ${cmd.arg}`,
+          prefix,
+          label: v,
+          hint: "",
         }));
         // If the typed arg isn't (yet) one of the options, still let them run it
         // verbatim — names can be valid before our cached list catches up.
         if (arg && !opts.some((o) => o.toLowerCase() === arg.toLowerCase())) {
-          out.unshift({ command: cmd, arg, complete: `${cmd.name} ${arg}`, label: `${cmd.title} ${arg}`, hint: `apply ${cmd.arg} (verbatim)` });
+          out.unshift({ command: cmd, arg, complete: `${cmd.name} ${arg}`, prefix, label: arg, hint: "" });
         }
         return out;
       }
       // Free-text arg (no list available).
-      return [{ command: cmd, arg, complete: `${cmd.name} ${arg}`, label: `${cmd.title} ${arg || "…"}`, hint: arg ? `apply ${cmd.arg}` : "open picker" }];
+      return [{ command: cmd, arg, complete: `${cmd.name} ${arg}`, prefix, label: arg || "…", hint: arg ? `apply ${cmd.arg}` : "open picker" }];
     }
     // Verb takes no arg — rank on the head alone.
     return rankCommands(commands, head || trimmed).map(toCommandCandidate);
